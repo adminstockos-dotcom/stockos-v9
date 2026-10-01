@@ -1,0 +1,27 @@
+{
+  "locked": [
+    "public/logo.png",
+    "src/components/LogoStockOS.jsx",
+    "src/assets/stockos-logo.png",
+    "src/pages/SuperAdmin.jsx",
+    "src/pages/Login.jsx",
+    "src/pages/EmpresaDashboard.jsx",
+    "src/components/LinkMaestroDisplay.jsx",
+    "src/layouts/EmpresaLayout.jsx",
+    "src/App.jsx",
+    "src/main.jsx"
+  ],
+  "loops_closed": ["LOOP1_LOGO", "LOOP2_SUPERADMIN", "LOOP3_PANEL_EMPRESA"],
+  "empresa_modelo": {
+    "nombreEmpresa": "Virtualclass512",
+    "subdomain": "vc512",
+    "linkMaestro": "vc512.stockos/inv"
+  },
+  "prohibido_tocar": [
+    "Layout 2 columnas (izquierda 7 módulos + centro componentes)",
+    "Link Maestro empresa primero (subdomain.stockos/inv)",
+    "Switches maestros e hijos con persistencia stockos_config_{subdomain}",
+    "Rutas /empresa/:subdomain, /infra/:subdomain, /inv/:subdomain",
+    "localStorage stockos_empresas y stockos_config_vc512"
+  ]
+}

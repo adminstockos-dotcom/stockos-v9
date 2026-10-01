@@ -1,0 +1,39 @@
+{
+  "backup_fecha": "2026-09-29",
+  "descripcion": "Backup del túnel completo antes de Dashboard - NO TOCAR",
+  "rutas_verificadas": {
+    "/empresa/vc512": 200,
+    "/empresa/nueva": 200,
+    "/empresa/test123": 200
+  },
+  "localStorage_keys": {
+    "vc512": [
+      "vc512_campanas_ia",
+      "vc512_conectores",
+      "vc512_historial_ganadoras",
+      "vc512_logs_n8n",
+      "vc512_rrss_conexiones"
+    ],
+    "nueva": [
+      "nueva_campanas_ia",
+      "nueva_conectores",
+      "nueva_historial_ganadoras",
+      "nueva_logs_n8n"
+    ],
+    "test123": [
+      "test123_campanas_ia",
+      "test123_conectores",
+      "test123_historial_ganadoras",
+      "test123_logs_n8n"
+    ]
+  },
+  "blindado": [
+    "CampanasIA.jsx - NO TOCAR",
+    "Conectores 3 (Meta/TikTok/WhatsApp) - NO TOCAR",
+    "Publicar AB - NO TOCAR",
+    "Evaluar Día 8 - NO TOCAR",
+    "Cerrar Mes - NO TOCAR",
+    "Presupuesto $432k - NO TOCAR",
+    "AB 8+22 - NO TOCAR"
+  ]
+}

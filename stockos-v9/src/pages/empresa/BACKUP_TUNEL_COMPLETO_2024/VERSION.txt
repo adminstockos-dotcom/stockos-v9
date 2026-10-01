@@ -1,0 +1,13 @@
+v9.0 - Túnel + Historial - 4 rutas 200 - 2024-09-29 - Listo para demo
+
+Rutas verificadas:
+- /empresa/vc512 200
+- /empresa/nueva 200
+- /empresa/test123 200
+- /empresa/vc512/historial 200
+
+Archivos congelados:
+- CampanasIA.jsx
+- HistorialGanadoras.jsx
+- EmpresaDashboard.jsx
+- EscanerDiarioP123.jsx
