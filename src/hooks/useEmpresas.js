@@ -46,7 +46,6 @@ export function useEmpresas() {
 
   const updateEmpresa = async (id, updates) => {
     try {
-      // Mapeamos 'estado' a minúscula o como lo maneje tu base de datos de Supabase
       const dbUpdates = { ...updates }
       if (dbUpdates.estado) {
         dbUpdates.estado = dbUpdates.estado.toLowerCase() === 'aprobada' ? 'aprobada' : 'pendiente'
@@ -59,7 +58,6 @@ export function useEmpresas() {
 
       if (error) throw error
 
-      // Actualizamos el estado localmente para reflejarlo de inmediato en la interfaz
       setEmpresas(prev => prev.map(e => e.id === Number(id) ? { ...e, ...updates } : e))
     } catch (error) {
       console.error('Error al actualizar empresa:', error.message)
