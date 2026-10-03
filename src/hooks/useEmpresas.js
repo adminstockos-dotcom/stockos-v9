@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '../lib/supabase.js'
 
 export function useEmpresas() {
   const [empresas, setEmpresas] = useState([])
@@ -82,4 +82,4 @@ export function useEmpresas() {
   }
 
   return { empresas, addEmpresa, updateEmpresa, deleteEmpresa, getEmpresa, loading }
-} 
+}
