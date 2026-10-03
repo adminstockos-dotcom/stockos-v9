@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 export function useEmpresas() {
   const [empresas, setEmpresas] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // Cargar empresas desde Supabase al iniciar
   useEffect(() => {
     fetchEmpresas()
   }, [])
