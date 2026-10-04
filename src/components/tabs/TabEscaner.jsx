@@ -58,9 +58,6 @@ export default function TabEscaner({ empresa }) {
   const [nuevaEspec, setNuevaEspec] = useState('')
   const [nuevaRef, setNuevaRef] = useState('')
   const [nuevoTipo, setNuevoTipo] = useState('Calzado Niños')
-  const [openBodega, setOpenBodega] = useState(true)
-  const [openPistola, setOpenPistola] = useState(true)
-  const [openDetalle, setOpenDetalle] = useState(true)
 
   useEffect(() => { localStorage.setItem(`stockos_bodegas_${empresaId}`, JSON.stringify(bodegas)) }, [bodegas, empresaId])
   useEffect(() => { localStorage.setItem(`stockos_pistolas_${empresaId}`, JSON.stringify(scanners)) }, [scanners, empresaId])
@@ -102,13 +99,10 @@ export default function TabEscaner({ empresa }) {
     setPrefijo(id); setEspecSel(specs[0]); setNuevaRef('')
   }
   const eliminarReferencia = (id) => { if(!confirm(`¿Borrar referencia ${id}?`)) return; setReferencias(prev=>prev.filter(r=>r.id!==id)) }
-
-  // NUEVA FUNCION - SOLO BORRA UNA TALLA
   const eliminarTalla = (refId, talla) => {
-    if(!confirm(`¿Eliminar solo la talla ${talla} de ${refId}?`)) return
+    if(!confirm(`¿Eliminar SOLO la talla ${talla} de ${refId}? Esta acción no borra la referencia.`)) return
     setReferencias(prev=>prev.map(r=> r.id===refId? {...r, especificaciones: r.especificaciones.filter(t=>t!==talla)} : r))
   }
-
   const addEspecificacion = () => {
     if(!nuevaEspec.trim() ||!refActual) return
     const nueva = nuevaEspec.trim()
@@ -164,7 +158,6 @@ export default function TabEscaner({ empresa }) {
         </div>
       </div>
 
-      {/* RECTANGULO 1 - FULL ANCHO */}
       <div className="bg-white p-4 rounded-lg shadow border">
         <div className="text-sm font-black mb-3">CREAR NUEVA REFERENCIA + TIPO DE MEDIDA</div>
         <div className="flex gap-2 mb-2">
@@ -172,19 +165,18 @@ export default function TabEscaner({ empresa }) {
           <select value={nuevoTipo} onChange={e=>setNuevoTipo(e.target.value)} className="border p-2 rounded text-xs font-bold bg-white min-w-">{Object.keys(TIPOS_MEDIDA).map(t=><option key={t} value={t}>{t}</option>)}</select>
           <button onClick={addReferencia} className="bg-black text-white px-4 rounded text-xs font-black">+ CREAR</button>
         </div>
-        <div className="text- text-gray-500 mb-2">Para niños elige <b>Calzado Niños</b> → crea tallas 28,29,30,31,32,33,34,35 una por una</div>
-        {/* LISTA CON X PARA BORRAR UNA SOLA TALLA */}
-        <div className="space-y-2 max-h-64 overflow-auto border rounded bg-gray-50 p-2">
+        <div className="bg-white p-2 border-2 border-red-200 rounded">
           {referencias.map(r=>(
-            <div key={r.id} className="bg-white border rounded p-2">
+            <div key={r.id} className="mb-3 border-b pb-2 last:border-0">
               <div className="flex justify-between items-center">
-                <span className="font-mono text-xs"><b>{r.id}</b> [{r.tipo}]</span>
-                <button onClick={()=>eliminarReferencia(r.id)} className="text-red-600 text- font-bold">🗑️ Borrar Ref</button>
+                <span className="font-mono text-xs font-bold">{r.id} [{r.tipo}]</span>
+                <button onClick={()=>eliminarReferencia(r.id)} className="text- bg-red-100 border border-red-300 px-2 py-0.5 rounded">🗑️ Ref</button>
               </div>
-              <div className="flex flex-wrap gap-1 mt-2">
+              <div className="flex flex-wrap gap-2 mt-2">
                 {r.especificaciones.map(t=>(
-                  <span key={t} className="bg-gray-100 border text- px-2 py-0.5 rounded-full flex items-center gap-1">
-                    {t} <button onClick={()=>eliminarTalla(r.id, t)} className="bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-">x</button>
+                  <span key={t} className="flex items-center gap-1 bg-yellow-50 border-2 border-black px-2 py-1 rounded text-xs font-black">
+                    {t}
+                    <button onClick={()=>eliminarTalla(r.id, t)} className="bg-red-600 text-white w-5 h-5 rounded-full flex items-center justify-center text- font-black hover:bg-black" title={`Borrar talla ${t}`}>X</button>
                   </span>
                 ))}
               </div>
@@ -198,17 +190,10 @@ export default function TabEscaner({ empresa }) {
         </div>
       </div>
 
-      {/* RECTANGULO 2 - FULL ANCHO */}
       <div className="bg-white p-4 rounded-lg shadow border space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <div className="text- font-black mb-1">PISTOLA (creada en Bodegas y Centros)</div>
-            <select value={pistolaSel} onChange={e=>setPistolaSel(e.target.value)} className="w-full border p-2 rounded text-sm font-mono bg-gray-50">{scanners.map(s=><option key={s.id} value={s.id}>{s.id} - {s.nombre} [{s.modo}] - {s.bodega}</option>)}</select>
-          </div>
-          <div>
-            <div className="text- font-black mb-1">BODEGA REAL (creada en Bodegas y Centros)</div>
-            <select value={bodegaSel} onChange={e=>setBodegaSel(e.target.value)} className="w-full border-2 border-black p-2 rounded text-sm font-bold bg-yellow-50">{bodegas.map(b=><option key={b.id} value={b.nombre}>{b.nombre} - {b.ciudad}</option>)}</select>
-          </div>
+          <div><div className="text- font-black mb-1">PISTOLA (creada en Bodegas y Centros)</div><select value={pistolaSel} onChange={e=>setPistolaSel(e.target.value)} className="w-full border p-2 rounded text-sm font-mono bg-gray-50">{scanners.map(s=><option key={s.id} value={s.id}>{s.id} - {s.nombre} [{s.modo}] - {s.bodega}</option>)}</select></div>
+          <div><div className="text- font-black mb-1">BODEGA REAL (creada en Bodegas y Centros)</div><select value={bodegaSel} onChange={e=>setBodegaSel(e.target.value)} className="w-full border-2 border-black p-2 rounded text-sm font-bold bg-yellow-50">{bodegas.map(b=><option key={b.id} value={b.nombre}>{b.nombre} - {b.ciudad}</option>)}</select></div>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Entrada'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Entrada'?'bg-green-600 text-white':'bg-gray-200'}`}>ENTRADA</button>
@@ -217,7 +202,6 @@ export default function TabEscaner({ empresa }) {
         </div>
         {scannerActual?.modo==='Devolucion' && <input placeholder="Motivo devolución" value={motivoDevo} onChange={e=>setMotivoDevo(e.target.value)} className="w-full border-2 border-yellow-400 p-2 rounded text-sm"/>}
         <button onClick={escanearAhora} className="w-full bg-black text-white py-3 rounded font-black text-sm">📡 ESCANEAR {prefijo} {especSel}</button>
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
           <div className="bg-white border-2 border-dashed p-3 rounded text-center space-y-2">
             <div className="font-mono text-lg font-black">{barcode}</div>
