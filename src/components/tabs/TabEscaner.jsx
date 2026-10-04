@@ -102,6 +102,13 @@ export default function TabEscaner({ empresa }) {
     setPrefijo(id); setEspecSel(specs[0]); setNuevaRef('')
   }
   const eliminarReferencia = (id) => { if(!confirm(`¿Borrar referencia ${id}?`)) return; setReferencias(prev=>prev.filter(r=>r.id!==id)) }
+
+  // NUEVA FUNCION - SOLO BORRA UNA TALLA
+  const eliminarTalla = (refId, talla) => {
+    if(!confirm(`¿Eliminar solo la talla ${talla} de ${refId}?`)) return
+    setReferencias(prev=>prev.map(r=> r.id===refId? {...r, especificaciones: r.especificaciones.filter(t=>t!==talla)} : r))
+  }
+
   const addEspecificacion = () => {
     if(!nuevaEspec.trim() ||!refActual) return
     const nueva = nuevaEspec.trim()
@@ -157,7 +164,7 @@ export default function TabEscaner({ empresa }) {
         </div>
       </div>
 
-      {/* RECTANGULO 1 - CREAR REFERENCIAS - FULL ANCHO */}
+      {/* RECTANGULO 1 - FULL ANCHO */}
       <div className="bg-white p-4 rounded-lg shadow border">
         <div className="text-sm font-black mb-3">CREAR NUEVA REFERENCIA + TIPO DE MEDIDA</div>
         <div className="flex gap-2 mb-2">
@@ -166,22 +173,32 @@ export default function TabEscaner({ empresa }) {
           <button onClick={addReferencia} className="bg-black text-white px-4 rounded text-xs font-black">+ CREAR</button>
         </div>
         <div className="text- text-gray-500 mb-2">Para niños elige <b>Calzado Niños</b> → crea tallas 28,29,30,31,32,33,34,35 una por una</div>
-        <div className="max-h-36 overflow-auto border rounded bg-gray-50 p-2 space-y-1">
+        {/* LISTA CON X PARA BORRAR UNA SOLA TALLA */}
+        <div className="space-y-2 max-h-64 overflow-auto border rounded bg-gray-50 p-2">
           {referencias.map(r=>(
-            <div key={r.id} className="flex justify-between items-center text-xs bg-white border rounded px-2 py-1">
-              <span className="font-mono"><b>{r.id}</b> [{r.tipo}] - {r.especificaciones.join(',')}</span>
-              <button onClick={()=>eliminarReferencia(r.id)} className="text-red-600 font-bold">🗑️</button>
+            <div key={r.id} className="bg-white border rounded p-2">
+              <div className="flex justify-between items-center">
+                <span className="font-mono text-xs"><b>{r.id}</b> [{r.tipo}]</span>
+                <button onClick={()=>eliminarReferencia(r.id)} className="text-red-600 text- font-bold">🗑️ Borrar Ref</button>
+              </div>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {r.especificaciones.map(t=>(
+                  <span key={t} className="bg-gray-100 border text- px-2 py-0.5 rounded-full flex items-center gap-1">
+                    {t} <button onClick={()=>eliminarTalla(r.id, t)} className="bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-">x</button>
+                  </span>
+                ))}
+              </div>
             </div>
           ))}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
           <select value={prefijo} onChange={e=>setPrefijo(e.target.value)} className="border p-2 rounded font-mono text-sm font-bold">{referencias.map(r=><option key={r.id} value={r.id}>{r.id} [{r.tipo}]</option>)}</select>
           <select value={especSel} onChange={e=>setEspecSel(e.target.value)} className="border-2 border-black p-2 rounded font-bold text-sm bg-yellow-50">{(refActual?.especificaciones || []).map(es=><option key={es} value={es}>{es}</option>)}</select>
-          <div className="flex gap-2"><input value={nuevaEspec} onChange={e=>setNuevaEspec(e.target.value)} placeholder={`Nueva talla Ej: 28`} className="border p-2 rounded text-xs flex-1"/><button onClick={addEspecificacion} className="bg-gray-800 text-white px-3 rounded text-xs">+ Talla</button></div>
+          <div className="flex gap-2"><input value={nuevaEspec} onChange={e=>setNuevaEspec(e.target.value)} placeholder="Nueva talla Ej: 28" className="border p-2 rounded text-xs flex-1"/><button onClick={addEspecificacion} className="bg-gray-800 text-white px-3 rounded text-xs">+ Talla</button></div>
         </div>
       </div>
 
-      {/* RECTANGULO 2 - PISTOLA Y BODEGA - FULL ANCHO */}
+      {/* RECTANGULO 2 - FULL ANCHO */}
       <div className="bg-white p-4 rounded-lg shadow border space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -223,7 +240,6 @@ export default function TabEscaner({ empresa }) {
         </div>
       </div>
 
-      {/* CONSOLIDADO - YA ESTABA FULL ANCHO */}
       <div className="bg-white rounded-lg shadow border-t-4 border-black overflow-hidden">
         <div className="p-4"><h3 className="font-black text-sm">📊 CONSOLIDADO TOTAL</h3><div className="grid grid-cols-5 gap-3 mt-3"><div className="bg-black text-white p-3 rounded"><div className="text-">STOCK REAL</div><div className="text-2xl font-black">{informe.totalStock}</div></div><div className="bg-gray-50 p-3 rounded border"><div className="text-">TOTAL MOV</div><div className="text-2xl font-black">{informe.total}</div></div><div className="bg-green-50 p-3 rounded border"><div className="text-">ENTRADAS</div><div className="text-2xl font-black text-green-600">{informe.entradas}</div></div><div className="bg-red-50 p-3 rounded border"><div className="text-">SALIDAS</div><div className="text-2xl font-black text-red-600">{informe.salidas}</div></div><div className="bg-yellow-50 p-3 rounded border"><div className="text-">DEVOLUCIONES</div><div className="text-2xl font-black text-yellow-600">{informe.devoluciones}</div></div></div></div>
       </div>
