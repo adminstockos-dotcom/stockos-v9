@@ -13,7 +13,7 @@ import TabBodega from '../components/tabs/TabBodega.jsx'
 import { useEmpresas } from '../hooks/useEmpresas.js'
 
 const TABS = [
-  { id: 0, label: 'Configuración Empresa', icon: '🏗️' },
+  { id: 0, label: 'Configuración Empresa', icon: '🏗' },
   { id: 1, label: 'Personas y Roles', icon: '👥' },
   { id: 2, label: 'Bodegas y Centros', icon: '🏭' },
   { id: 3, label: 'Bodega Stock + Pistola', icon: '📡' },
@@ -26,11 +26,22 @@ const TABS = [
 export default function EmpresaPanel({ user, onLogout }) {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { getEmpresa } = useEmpresas()
+  const { getEmpresa, loading } = useEmpresas()
   const [activeTab, setActiveTab] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const empresa = getEmpresa(id)
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-gray-500">Cargando empresa...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!empresa) {
     return (
@@ -38,7 +49,7 @@ export default function EmpresaPanel({ user, onLogout }) {
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Empresa no encontrada</h2>
           <p className="text-gray-500 mb-4">La empresa que buscas no existe o fue eliminada.</p>
-          <button onClick={() => navigate('/superadmin')} className="btn-primary">
+          <button onClick={() => navigate('/superadmin')} className="btn-primary px-4 py-2 bg-black text-white rounded">
             Volver al Super Admin
           </button>
         </div>
