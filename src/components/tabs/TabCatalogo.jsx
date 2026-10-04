@@ -20,7 +20,7 @@ export default function TabCatalogo({ empresa }) {
 
   const filtered = productos.filter(p => {
     const mCat = categoria === 'Todas' || p.categoria === categoria
-    const mSearch = (p.nombre||'').toLowerCase().includes(search.toLowerCase())
+    const mSearch = (p.nombre || '').toLowerCase().includes(search.toLowerCase())
     return mCat && mSearch
   })
 
@@ -36,8 +36,8 @@ export default function TabCatalogo({ empresa }) {
           {categorias.map(c=><option key={c}>{c}</option>)}
         </select>
       </div>
-      {filtered.length===0? (
-        <div className="card text-center py-12 text-gray-500">Esta empresa aun no tiene productos. Crea productos en Bodega Stock + Pistola.</div>
+      {filtered.length === 0? (
+        <div className="card text-center py-12 text-gray-500">Esta empresa aun no tiene productos.</div>
       ) : (
         <div className="grid grid-cols-4 gap-4">
           {filtered.map(p=>(
