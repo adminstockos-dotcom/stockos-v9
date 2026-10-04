@@ -13,9 +13,9 @@ export function useEmpresas() {
     try {
       setLoading(true)
       const { data, error } = await supabase
-        .from('empresas')
-        .select('*')
-        .order('created_at', { ascending: false })
+       .from('empresas')
+       .select('*')
+       .order('created_at', { ascending: false })
 
       if (error) throw error
       if (data) setEmpresas(data)
@@ -29,13 +29,13 @@ export function useEmpresas() {
   const addEmpresa = async (empresa) => {
     try {
       const { data, error } = await supabase
-        .from('empresas')
-        .insert([empresa])
-        .select()
+       .from('empresas')
+       .insert([empresa])
+       .select()
 
       if (error) throw error
       if (data && data.length > 0) {
-        setEmpresas(prev => [data[0], ...prev])
+        setEmpresas(prev => [data[0],...prev])
         return data[0]
       }
     } catch (error) {
@@ -45,19 +45,19 @@ export function useEmpresas() {
 
   const updateEmpresa = async (id, updates) => {
     try {
-      const dbUpdates = { ...updates }
+      const dbUpdates = {...updates }
       if (dbUpdates.estado) {
-        dbUpdates.estado = dbUpdates.estado.toLowerCase() === 'aprobada' ? 'aprobada' : 'pendiente'
+        dbUpdates.estado = dbUpdates.estado.toLowerCase() === 'aprobada'? 'aprobada' : 'pendiente'
       }
 
       const { error } = await supabase
-        .from('empresas')
-        .update(dbUpdates)
-        .eq('id', id)
+       .from('empresas')
+       .update(dbUpdates)
+       .eq('id', id)
 
       if (error) throw error
 
-      setEmpresas(prev => prev.map(e => e.id === Number(id) ? { ...e, ...updates } : e))
+      setEmpresas(prev => prev.map(e => String(e.id) === String(id)? {...e,...updates } : e))
     } catch (error) {
       console.error('Error al actualizar empresa:', error.message)
     }
@@ -66,19 +66,19 @@ export function useEmpresas() {
   const deleteEmpresa = async (id) => {
     try {
       const { error } = await supabase
-        .from('empresas')
-        .delete()
-        .eq('id', id)
+       .from('empresas')
+       .delete()
+       .eq('id', id)
 
       if (error) throw error
-      setEmpresas(prev => prev.filter(e => e.id !== Number(id)))
+      setEmpresas(prev => prev.filter(e => String(e.id)!== String(id)))
     } catch (error) {
       console.error('Error al eliminar empresa:', error.message)
     }
   }
 
   const getEmpresa = (id) => {
-    return empresas.find(e => e.id === Number(id))
+    return empresas.find(e => String(e.id) === String(id))
   }
 
   return { empresas, addEmpresa, updateEmpresa, deleteEmpresa, getEmpresa, loading }
