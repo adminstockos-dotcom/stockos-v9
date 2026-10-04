@@ -8,14 +8,13 @@ const TIPOS_MEDIDA = {
   Otro: ['UNICA']
 }
 
-const DATA_EJEMPLO = {
-  'Bodega Principal Cali|REF-001|M': { stock: 15, entradas: 20, salidas: 5, devoluciones: 0 },
-  'Bodega Principal Cali|REF-001|L': { stock: 8, entradas: 10, salidas: 2, devoluciones: 0 },
-}
 const BODEGAS_EJEMPLO = [
   { id: 1, nombre: 'Bodega Principal Cali', ciudad: 'Cali', stock: 35 },
   { id: 2, nombre: 'Centro Norte', ciudad: 'Bogota', stock: 5 },
 ]
+const DATA_EJEMPLO = {
+  'Bodega Principal Cali|REF-001|M': { stock: 15, entradas: 20, salidas: 5, devoluciones: 0 },
+}
 const LOGS_EJEMPLO = [{ id: 1, fecha: new Date().toISOString(), tipo: 'Entrada', producto: 'REF-001-M-0001', referencia: 'REF-001', espec: 'M', bodega: 'Bodega Principal Cali', pistola: 'PIST-001', motivo: '' }]
 
 export default function TabEscaner({ empresa }) {
@@ -23,35 +22,18 @@ export default function TabEscaner({ empresa }) {
   const esReal = Number(empresaId) === 21 || empresa?.nombre?.toUpperCase().includes('MAXIMA')
 
   const [bodegas, setBodegas] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`stockos_bodegas_${empresaId}`)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if(parsed.length > 0) return parsed
-      }
-    } catch {}
+    try { const saved = localStorage.getItem(`stockos_bodegas_${empresaId}`); if (saved) { const p=JSON.parse(saved); if(p.length>0) return p } } catch {}
     return esReal? [{ id: 1, nombre: 'Bodega Norte', ciudad: 'Cali', stock: 0 }] : BODEGAS_EJEMPLO
   })
-
   const [scanners, setScanners] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`stockos_pistolas_${empresaId}`)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if(parsed.length > 0) return parsed
-      }
-    } catch {}
+    try { const saved = localStorage.getItem(`stockos_pistolas_${empresaId}`); if (saved) { const p=JSON.parse(saved); if(p.length>0) return p } } catch {}
     return [
       { id: 'PIST-001', nombre: 'Pistola Principal', modelo: 'Zebra DS3608', estado: 'Conectada', modo: 'Entrada' },
       { id: 'PIST-002', nombre: 'Pistola Norte', modelo: 'Honeywell 1470g', estado: 'Conectada', modo: 'Salida' },
     ]
   })
-
   const [referencias, setReferencias] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`stockos_refs_${empresaId}`)
-      if (saved) return JSON.parse(saved)
-    } catch {}
+    try { const saved = localStorage.getItem(`stockos_refs_${empresaId}`); if (saved) return JSON.parse(saved) } catch {}
     return [
       { id: 'REF-001', tipo: 'Ropa', especificaciones: ['S','M','L','XL'] },
       { id: 'REF-002', tipo: 'Calzado Dama', especificaciones: ['35','36','37','38'] },
@@ -59,17 +41,11 @@ export default function TabEscaner({ empresa }) {
     ]
   })
   const [inventario, setInventario] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`stockos_inventario_${empresaId}`)
-      if (saved) return JSON.parse(saved)
-    } catch {}
+    try { const saved = localStorage.getItem(`stockos_inventario_${empresaId}`); if (saved) return JSON.parse(saved) } catch {}
     return esReal? {} : DATA_EJEMPLO
   })
   const [logs, setLogs] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`stockos_logs_${empresaId}`)
-      if (saved) return JSON.parse(saved)
-    } catch {}
+    try { const saved = localStorage.getItem(`stockos_logs_${empresaId}`); if (saved) return JSON.parse(saved) } catch {}
     return esReal? [] : LOGS_EJEMPLO
   })
 
@@ -86,31 +62,19 @@ export default function TabEscaner({ empresa }) {
   const [openPistola, setOpenPistola] = useState(true)
   const [openDetalle, setOpenDetalle] = useState(true)
 
-  // Persistencia
   useEffect(() => { localStorage.setItem(`stockos_bodegas_${empresaId}`, JSON.stringify(bodegas)) }, [bodegas, empresaId])
   useEffect(() => { localStorage.setItem(`stockos_pistolas_${empresaId}`, JSON.stringify(scanners)) }, [scanners, empresaId])
   useEffect(() => { localStorage.setItem(`stockos_refs_${empresaId}`, JSON.stringify(referencias)) }, [referencias, empresaId])
   useEffect(() => { localStorage.setItem(`stockos_inventario_${empresaId}`, JSON.stringify(inventario)) }, [inventario, empresaId])
   useEffect(() => { localStorage.setItem(`stockos_logs_${empresaId}`, JSON.stringify(logs)) }, [logs, empresaId])
 
-  // === LEE EN VIVO LO QUE CREAS EN TABBODEGA ===
   useEffect(() => {
     const id = setInterval(() => {
       try {
         const b = localStorage.getItem(`stockos_bodegas_${empresaId}`)
-        if (b) {
-          const parsed = JSON.parse(b)
-          if (parsed.length > 0 && JSON.stringify(parsed)!== JSON.stringify(bodegas)) {
-            setBodegas(parsed)
-          }
-        }
+        if (b) { const parsed = JSON.parse(b); if (parsed.length > 0 && JSON.stringify(parsed)!== JSON.stringify(bodegas)) setBodegas(parsed) }
         const p = localStorage.getItem(`stockos_pistolas_${empresaId}`)
-        if (p) {
-          const parsed = JSON.parse(p)
-          if (parsed.length > 0 && JSON.stringify(parsed)!== JSON.stringify(scanners)) {
-            setScanners(parsed)
-          }
-        }
+        if (p) { const parsed = JSON.parse(p); if (parsed.length > 0 && JSON.stringify(parsed)!== JSON.stringify(scanners)) setScanners(parsed) }
       } catch {}
     }, 800)
     return () => clearInterval(id)
@@ -118,46 +82,26 @@ export default function TabEscaner({ empresa }) {
 
   useEffect(() => {
     const refDeEseTipo = referencias.find(r => r.tipo === nuevoTipo)
-    if (refDeEseTipo) {
-      setPrefijo(refDeEseTipo.id)
-      setEspecSel(refDeEseTipo.especificaciones[0])
-    } else {
-      setEspecSel(TIPOS_MEDIDA[nuevoTipo]?.[0] || 'UNICA')
-    }
+    if (refDeEseTipo) { setPrefijo(refDeEseTipo.id); setEspecSel(refDeEseTipo.especificaciones[0]) }
+    else { setEspecSel(TIPOS_MEDIDA[nuevoTipo]?.[0] || 'UNICA') }
   }, [nuevoTipo, referencias])
-
-  useEffect(() => {
-    if (!bodegas.find(b => b.nombre === bodegaSel) && bodegas[0]) setBodegaSel(bodegas[0].nombre)
-  }, [bodegas, bodegaSel])
-
-  useEffect(() => {
-    if (!scanners.find(s => s.id === pistolaSel) && scanners[0]) setPistolaSel(scanners[0].id)
-  }, [scanners, pistolaSel])
+  useEffect(() => { if (!bodegas.find(b => b.nombre === bodegaSel) && bodegas[0]) setBodegaSel(bodegas[0].nombre) }, [bodegas, bodegaSel])
+  useEffect(() => { if (!scanners.find(s => s.id === pistolaSel) && scanners[0]) setPistolaSel(scanners[0].id) }, [scanners, pistolaSel])
 
   const barcode = `${prefijo}-${especSel}-${String(consecutivo).padStart(4, '0')}`
   const scannerActual = scanners.find(s=>s.id===pistolaSel) || scanners[0]
   const refActual = referencias.find(r=>r.id===prefijo)
 
-  const resetCero = () => {
-    if(!confirm(`¿RESET TOTAL A CERO de ${empresa?.nombre}?`)) return
-    setInventario({}); setLogs([]); setConsecutivo(1)
-  }
-
+  const resetCero = () => { if(!confirm(`¿RESET TOTAL A CERO de ${empresa?.nombre}?`)) return; setInventario({}); setLogs([]); setConsecutivo(1) }
   const addReferencia = () => {
-    if(!nuevaRef.trim()) return alert('Escribe Ej: MAXIMA NINOS')
+    if(!nuevaRef.trim()) return alert('Escribe Ej: MAXIMA DAMA')
     const id = nuevaRef.trim().toUpperCase()
     if(referencias.some(r=>r.id===id)) return alert('Ya existe')
     const specs = TIPOS_MEDIDA[nuevoTipo] || ['UNICA']
     setReferencias(prev=>[...prev, {id, tipo: nuevoTipo, especificaciones: specs}])
     setPrefijo(id); setEspecSel(specs[0]); setNuevaRef('')
   }
-
-  const eliminarReferencia = (id) => {
-    if(!confirm(`¿Borrar referencia ${id}?`)) return
-    setReferencias(prev=>prev.filter(r=>r.id!==id))
-    if(prefijo===id && referencias[0]) setPrefijo(referencias[0].id)
-  }
-
+  const eliminarReferencia = (id) => { if(!confirm(`¿Borrar referencia ${id}?`)) return; setReferencias(prev=>prev.filter(r=>r.id!==id)) }
   const addEspecificacion = () => {
     if(!nuevaEspec.trim() ||!refActual) return
     const nueva = nuevaEspec.trim()
@@ -179,7 +123,6 @@ export default function TabEscaner({ empresa }) {
     })
     setConsecutivo(c=>c+1)
   }
-
   const exportExcel = () => {
     const csv = ['Bodega,Ref,Tipo,Espec,Entradas,Salidas,Devoluciones,Stock',...Object.entries(inventario).map(([k,v])=>{const [b,r,e]=k.split('|'); const t=referencias.find(x=>x.id===r)?.tipo||''; return `${b},${r},${t},${e},${v.entradas},${v.salidas},${v.devoluciones},${v.stock}`})].join('\n')
     const blob = new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`stockos_${prefijo}_${empresaId}.csv`; a.click()
@@ -190,13 +133,9 @@ export default function TabEscaner({ empresa }) {
   const imprimirBarras = (cantidad = 1) => {
     const w = window.open('', '', 'width=500,height=700')
     let etiquetas = ''
-    for(let i=0;i<cantidad;i++){
-      etiquetas += `<div style="border:1px dashed #999; padding:12px 8px; margin:8px; text-align:center; page-break-inside:avoid;"><div style="font-family:monospace; font-weight:900; font-size:14px;">${barcode}</div><img src="https://barcodeapi.org/api/128/${barcode}" style="width:90%; height:50px; object-fit:contain; margin:6px 0;" /><div style="font-size:9px;">${refActual?.tipo} | ${bodegaSel} | ${prefijo}-${especSel}</div></div>`
-    }
-    w.document.write(`<html><head><title>Barras ${barcode} x${cantidad}</title><style>body{font-family:monospace; margin:0; padding:10px;} @media print { @page { margin:5mm; } }</style></head><body><div style="display:grid; grid-template-columns:1fr 1fr; gap:2px;">${etiquetas}</div><script>window.onload=()=>{window.print(); setTimeout(()=>window.close(),800)}</script></body></html>`)
-    w.document.close()
+    for(let i=0;i<cantidad;i++){ etiquetas += `<div style="border:1px dashed #999; padding:12px 8px; margin:8px; text-align:center; page-break-inside:avoid;"><div style="font-family:monospace; font-weight:900; font-size:14px;">${barcode}</div><img src="https://barcodeapi.org/api/128/${barcode}" style="width:90%; height:50px; object-fit:contain; margin:6px 0;" /><div style="font-size:9px;">${refActual?.tipo} | ${bodegaSel} | ${prefijo}-${especSel}</div></div>` }
+    w.document.write(`<html><head><title>Barras ${barcode} x${cantidad}</title><style>body{font-family:monospace; margin:0; padding:10px;} @media print { @page { margin:5mm; } }</style></head><body><div style="display:grid; grid-template-columns:1fr 1fr; gap:2px;">${etiquetas}</div><script>window.onload=()=>{window.print(); setTimeout(()=>window.close(),800)}</script></body></html>`); w.document.close()
   }
-
   const informe = useMemo(()=>{
     const detalle = Object.entries(inventario).map(([k,v])=>{ const [bodega,ref,espec]=k.split('|'); return {bodega,ref,espec,...v} })
     return {
@@ -210,7 +149,7 @@ export default function TabEscaner({ empresa }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-2">
-        <h2 className="text-xl font-bold">🏭 Escáner - {empresa?.nombre} {esReal? <span className="bg-green-600 text-white text- px-2 py-1 rounded">REAL - EN CERO</span> : <span className="bg-gray-400 text-white text- px-2 py-1 rounded">Empresa {empresaId}</span>}</h2>
+        <h2 className="text-xl font-bold">🏭 Escáner - {empresa?.nombre}</h2>
         <div className="flex gap-2">
           <button onClick={exportExcel} className="bg-green-600 text-white px-3 py-2 rounded font-bold text-xs">📊 Excel</button>
           <button onClick={()=>window.print()} className="bg-blue-600 text-white px-3 py-2 rounded font-bold text-xs">📄 PDF</button>
@@ -218,49 +157,58 @@ export default function TabEscaner({ empresa }) {
         </div>
       </div>
 
-      <div className="bg-yellow-50 border border-yellow-300 p-2 rounded text-">🔗 Conectado a TabBodega: {bodegas.length} bodega(s) / {scanners.length} pistola(s) | Bodega actual: <b>{bodegaSel}</b> | Pistola: <b>{pistolaSel}</b></div>
-
-      <div className="bg-white p-4 rounded-lg shadow border grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <div className="border rounded p-2 space-y-2 bg-gray-50">
-            <div className="text- font-black">CREAR NUEVA REFERENCIA + TIPO DE MEDIDA</div>
-            <div className="flex gap-2"><input value={nuevaRef} onChange={e=>setNuevaRef(e.target.value)} placeholder="Ej: CALZADO NINOS" className="border p-2 rounded text-xs flex-1"/><select value={nuevoTipo} onChange={e=>setNuevoTipo(e.target.value)} className="border p-2 rounded text-xs font-bold bg-white">{Object.keys(TIPOS_MEDIDA).map(t=><option key={t} value={t}>{t}</option>)}</select><button onClick={addReferencia} className="bg-black text-white px-3 rounded text-xs font-black">+ CREAR</button></div>
-            <div className="text- text-gray-500">Para niños elige <b>Calzado Niños</b> → crea tallas 28,29,30,31,32,33,34,35 una por una</div>
-            <div className="max-h-28 overflow-auto border bg-white rounded p-1">
-              {referencias.map(r=>(
-                <div key={r.id} className="flex justify-between items-center text- py-1 border-b last:border-0">
-                  <span className="font-mono"><b>{r.id}</b> [{r.tipo}] - {r.especificaciones.join(',')}</span>
-                  <button onClick={()=>eliminarReferencia(r.id)} className="text-red-600 font-bold px-2">🗑️</button>
-                </div>
-              ))}
+      {/* RECTANGULO 1 - CREAR REFERENCIAS - FULL ANCHO */}
+      <div className="bg-white p-4 rounded-lg shadow border">
+        <div className="text-sm font-black mb-3">CREAR NUEVA REFERENCIA + TIPO DE MEDIDA</div>
+        <div className="flex gap-2 mb-2">
+          <input value={nuevaRef} onChange={e=>setNuevaRef(e.target.value)} placeholder="Ej: CALZADO NINOS" className="border p-2 rounded text-xs flex-1"/>
+          <select value={nuevoTipo} onChange={e=>setNuevoTipo(e.target.value)} className="border p-2 rounded text-xs font-bold bg-white min-w-">{Object.keys(TIPOS_MEDIDA).map(t=><option key={t} value={t}>{t}</option>)}</select>
+          <button onClick={addReferencia} className="bg-black text-white px-4 rounded text-xs font-black">+ CREAR</button>
+        </div>
+        <div className="text- text-gray-500 mb-2">Para niños elige <b>Calzado Niños</b> → crea tallas 28,29,30,31,32,33,34,35 una por una</div>
+        <div className="max-h-36 overflow-auto border rounded bg-gray-50 p-2 space-y-1">
+          {referencias.map(r=>(
+            <div key={r.id} className="flex justify-between items-center text-xs bg-white border rounded px-2 py-1">
+              <span className="font-mono"><b>{r.id}</b> [{r.tipo}] - {r.especificaciones.join(',')}</span>
+              <button onClick={()=>eliminarReferencia(r.id)} className="text-red-600 font-bold">🗑️</button>
             </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
+          <select value={prefijo} onChange={e=>setPrefijo(e.target.value)} className="border p-2 rounded font-mono text-sm font-bold">{referencias.map(r=><option key={r.id} value={r.id}>{r.id} [{r.tipo}]</option>)}</select>
+          <select value={especSel} onChange={e=>setEspecSel(e.target.value)} className="border-2 border-black p-2 rounded font-bold text-sm bg-yellow-50">{(refActual?.especificaciones || []).map(es=><option key={es} value={es}>{es}</option>)}</select>
+          <div className="flex gap-2"><input value={nuevaEspec} onChange={e=>setNuevaEspec(e.target.value)} placeholder={`Nueva talla Ej: 28`} className="border p-2 rounded text-xs flex-1"/><button onClick={addEspecificacion} className="bg-gray-800 text-white px-3 rounded text-xs">+ Talla</button></div>
+        </div>
+      </div>
+
+      {/* RECTANGULO 2 - PISTOLA Y BODEGA - FULL ANCHO */}
+      <div className="bg-white p-4 rounded-lg shadow border space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div className="text- font-black mb-1">PISTOLA (creada en Bodegas y Centros)</div>
+            <select value={pistolaSel} onChange={e=>setPistolaSel(e.target.value)} className="w-full border p-2 rounded text-sm font-mono bg-gray-50">{scanners.map(s=><option key={s.id} value={s.id}>{s.id} - {s.nombre} [{s.modo}] - {s.bodega}</option>)}</select>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <select value={prefijo} onChange={e=>setPrefijo(e.target.value)} className="border p-2 rounded font-mono text-sm font-bold">{referencias.map(r=><option key={r.id} value={r.id}>{r.id} [{r.tipo}]</option>)}</select>
-            <select value={especSel} onChange={e=>setEspecSel(e.target.value)} className="border-2 border-black p-2 rounded font-bold text-sm bg-yellow-50">{(refActual?.especificaciones || []).map(es=><option key={es} value={es}>{es}</option>)}</select>
-          </div>
-          <div className="flex gap-2"><input value={nuevaEspec} onChange={e=>setNuevaEspec(e.target.value)} placeholder={`Nueva talla para ${refActual?.tipo} Ej: 28`} className="border p-2 rounded text-xs flex-1"/><button onClick={addEspecificacion} className="bg-gray-800 text-white px-3 rounded text-xs">+ Talla</button></div>
-          <div className="bg-white border-2 border-dashed p-3 rounded text-center space-y-2">
-            <div className="font-mono text-xl font-black">{barcode}</div>
-            <img src={`https://barcodeapi.org/api/128/${barcode}`} alt="barcode" className="mx-auto h-16 object-contain"/>
-            <div className="text-">{refActual?.tipo || nuevoTipo} | {bodegaSel} | {scannerActual?.modo}</div>
-            <button onClick={imprimirEtiqueta} className="w-full bg-gray-900 text-white py-1 rounded text-xs font-bold">🖨 Imprimir Etiqueta</button>
+          <div>
+            <div className="text- font-black mb-1">BODEGA REAL (creada en Bodegas y Centros)</div>
+            <select value={bodegaSel} onChange={e=>setBodegaSel(e.target.value)} className="w-full border-2 border-black p-2 rounded text-sm font-bold bg-yellow-50">{bodegas.map(b=><option key={b.id} value={b.nombre}>{b.nombre} - {b.ciudad}</option>)}</select>
           </div>
         </div>
+        <div className="grid grid-cols-3 gap-2">
+          <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Entrada'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Entrada'?'bg-green-600 text-white':'bg-gray-200'}`}>ENTRADA</button>
+          <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Salida'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Salida'?'bg-red-600 text-white':'bg-gray-200'}`}>SALIDA</button>
+          <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Devolucion'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Devolucion'?'bg-yellow-400':'bg-gray-200'}`}>DEVOLUCIÓN</button>
+        </div>
+        {scannerActual?.modo==='Devolucion' && <input placeholder="Motivo devolución" value={motivoDevo} onChange={e=>setMotivoDevo(e.target.value)} className="w-full border-2 border-yellow-400 p-2 rounded text-sm"/>}
+        <button onClick={escanearAhora} className="w-full bg-black text-white py-3 rounded font-black text-sm">📡 ESCANEAR {prefijo} {especSel}</button>
 
-        <div className="space-y-2">
-          <div className="text- font-black">PISTOLA (creada en Bodegas y Centros)</div>
-          <select value={pistolaSel} onChange={e=>setPistolaSel(e.target.value)} className="w-full border p-2 rounded text-sm font-mono bg-gray-50">{scanners.map(s=><option key={s.id} value={s.id}>{s.id} - {s.nombre} [{s.modo}] - {s.bodega}</option>)}</select>
-          <div className="text- font-black">BODEGA REAL (creada en Bodegas y Centros)</div>
-          <select value={bodegaSel} onChange={e=>setBodegaSel(e.target.value)} className="w-full border-2 border-black p-2 rounded text-sm font-bold bg-yellow-50">{bodegas.map(b=><option key={b.id} value={b.nombre}>{b.nombre} - {b.ciudad}</option>)}</select>
-          <div className="grid grid-cols-3 gap-2">
-            <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Entrada'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Entrada'?'bg-green-600 text-white':'bg-gray-200'}`}>ENTRADA</button>
-            <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Salida'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Salida'?'bg-red-600 text-white':'bg-gray-200'}`}>SALIDA</button>
-            <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Devolucion'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Devolucion'?'bg-yellow-400':'bg-gray-200'}`}>DEVOLUCIÓN</button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
+          <div className="bg-white border-2 border-dashed p-3 rounded text-center space-y-2">
+            <div className="font-mono text-lg font-black">{barcode}</div>
+            <img src={`https://barcodeapi.org/api/128/${barcode}`} alt="barcode" className="mx-auto h-16 object-contain"/>
+            <div className="text-">{refActual?.tipo || nuevoTipo} | {bodegaSel} | {scannerActual?.modo}</div>
+            <button onClick={imprimirEtiqueta} className="w-full bg-gray-900 text-white py-1.5 rounded text-xs font-bold">🖨 Imprimir Etiqueta</button>
           </div>
-          {scannerActual?.modo==='Devolucion' && <input placeholder="Motivo devolución" value={motivoDevo} onChange={e=>setMotivoDevo(e.target.value)} className="w-full border-2 border-yellow-400 p-2 rounded text-sm"/>}
-          <button onClick={escanearAhora} className="w-full bg-black text-white py-3 rounded font-black">📡 ESCANEAR {prefijo} {especSel}</button>
-          <div className="border-2 border-black rounded-lg p-2 bg-yellow-50 space-y-2 mt-2">
+          <div className="border-2 border-black rounded-lg p-2 bg-yellow-50 space-y-2">
             <div className="text- font-black text-center">🖨 IMPRIMIR CÓDIGO DE BARRAS - {barcode}</div>
             <div className="grid grid-cols-3 gap-2">
               <button onClick={()=>imprimirBarras(1)} className="bg-white border-2 border-black py-2 rounded font-black text-">BARRAS x1</button>
@@ -275,8 +223,9 @@ export default function TabEscaner({ empresa }) {
         </div>
       </div>
 
+      {/* CONSOLIDADO - YA ESTABA FULL ANCHO */}
       <div className="bg-white rounded-lg shadow border-t-4 border-black overflow-hidden">
-        <div className="p-4"><h3 className="font-black text-sm">📊 CONSOLIDADO TOTAL - {esReal? 'MÁXIMA IMPORTADORES REAL EN CERO' : 'EJEMPLO'}</h3><div className="grid grid-cols-5 gap-3 mt-3"><div className="bg-black text-white p-3 rounded"><div className="text-">STOCK REAL</div><div className="text-2xl font-black">{informe.totalStock}</div></div><div className="bg-gray-50 p-3 rounded border"><div className="text-">TOTAL MOV</div><div className="text-2xl font-black">{informe.total}</div></div><div className="bg-green-50 p-3 rounded border"><div className="text-">ENTRADAS</div><div className="text-2xl font-black text-green-600">{informe.entradas}</div></div><div className="bg-red-50 p-3 rounded border"><div className="text-">SALIDAS</div><div className="text-2xl font-black text-red-600">{informe.salidas}</div></div><div className="bg-yellow-50 p-3 rounded border"><div className="text-">DEVOLUCIONES</div><div className="text-2xl font-black text-yellow-600">{informe.devoluciones}</div></div></div></div>
+        <div className="p-4"><h3 className="font-black text-sm">📊 CONSOLIDADO TOTAL</h3><div className="grid grid-cols-5 gap-3 mt-3"><div className="bg-black text-white p-3 rounded"><div className="text-">STOCK REAL</div><div className="text-2xl font-black">{informe.totalStock}</div></div><div className="bg-gray-50 p-3 rounded border"><div className="text-">TOTAL MOV</div><div className="text-2xl font-black">{informe.total}</div></div><div className="bg-green-50 p-3 rounded border"><div className="text-">ENTRADAS</div><div className="text-2xl font-black text-green-600">{informe.entradas}</div></div><div className="bg-red-50 p-3 rounded border"><div className="text-">SALIDAS</div><div className="text-2xl font-black text-red-600">{informe.salidas}</div></div><div className="bg-yellow-50 p-3 rounded border"><div className="text-">DEVOLUCIONES</div><div className="text-2xl font-black text-yellow-600">{informe.devoluciones}</div></div></div></div>
       </div>
     </div>
   )
