@@ -1,171 +1,77 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase.js'
 
-// DATA DEMO ORIGINAL - NO SE BORRA, SE USA COMO FALLBACK
-const DEMO_CATALOGO = [
+const DEMO = [
   { id: 'SKU-001', nombre: 'Producto Premium A', categoria: 'Electrónica', precio: 25000, stock: 10 },
   { id: 'SKU-002', nombre: 'Producto Medio B', categoria: 'Accesorios', precio: 12000, stock: 5 },
   { id: 'SKU-003', nombre: 'Producto Base C', categoria: 'Insumos', precio: 3000, stock: 15 },
 ]
 
 export default function TabCatalogo({ empresa }) {
-  const empresaId = empresa?.id || window.location.pathname.split('/')[2] || '9'
-  const esMaxima = empresa?.nombre?.toUpperCase().includes('MAXIMA') || String(empresaId).includes('676d535d')
-
+  const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
   const [busqueda, setBusqueda] = useState('')
-  const [categoriaFiltro, setCategoriaFiltro] = useState('Todas')
-  const [productosReales, setProductosReales] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [usandoDemo, setUsandoDemo] = useState(true)
+  const [filtro, setFiltro] = useState('Todas')
+  const [productos, setProductos] = useState([])
+  const [categorias, setCategorias] = useState([])
+  const [demo, setDemo] = useState(true)
 
-  // BLINDADO: CARGAR STOCK REAL DE SUPABASE SIN DAÑAR DEMO
   useEffect(() => {
-    const cargarCatalogoReal = async () => {
+    const cargar = async () => {
       try {
-        setLoading(true)
-        // 1. Traer referencias reales de esta empresa
-        const { data: refs, error: errRefs } = await supabase
-          .from('referencias_stockos')
-          .select('*')
-          .eq('empresa_id', String(empresaId))
-          .limit(100)
+        // 1. LEER DE LA PAGINA POR EMPRESA (tu fuente principal)
+        const refsRaw = localStorage.getItem(`stockos_refs_${empresaId}`)
+        const invRaw = localStorage.getItem(`stockos_inventario_${empresaId}`)
+        const refs = refsRaw? JSON.parse(refsRaw) : []
 
-        if (errRefs || !refs || refs.length === 0) {
-          setUsandoDemo(true)
-          setLoading(false)
-          return
+        if (refs.length === 0) { setDemo(true); return }
+
+        const catsPagina = [...new Set(refs.map(r=>r.tipo).filter(Boolean))]
+        setCategorias(catsPagina)
+
+        // 2. CREAR EN SUPABASE SI NO EXISTEN (por empresa)
+        for (const cat of catsPagina) {
+          await supabase.from('categorias_stockos').upsert(
+            { empresa_id: empresaId, nombre: cat, tipo_medida: cat },
+            { onConflict: 'empresa_id,nombre' }
+          )
         }
 
-        // 2. Traer movimientos para calcular stock real
-        const { data: movs } = await supabase
-          .from('movimientos_stock')
-          .select('referencia, talla, tipo_movimiento, cantidad')
-          .eq('empresa_id', String(empresaId))
-          .limit(1000)
-
-        // 3. Agrupar por referencia
+        // 3. PRODUCTOS DESDE PAGINA
+        const inv = invRaw? JSON.parse(invRaw) : {}
         const stockPorRef = {}
-        const tipoPorRef = {}
-        refs.forEach(r => {
-          if (!stockPorRef[r.nombre_referencia]) stockPorRef[r.nombre_referencia] = 0
-          tipoPorRef[r.nombre_referencia] = r.tipo_medida
+        refs.forEach(r=> stockPorRef[r.id]=0)
+        Object.entries(inv).forEach(([k,v])=>{
+          const refId = k.split('|')[1]
+          if(stockPorRef[refId]!==undefined) stockPorRef[refId]+= v.stock||0
         })
 
-        if (movs) {
-          movs.forEach(m => {
-            const key = m.referencia
-            if (stockPorRef[key] === undefined) stockPorRef[key] = 0
-            if (m.tipo_movimiento === 'ENTRADA' || m.tipo_movimiento === 'DEVOLUCION') {
-              stockPorRef[key] += (m.cantidad || 1)
-            } else if (m.tipo_movimiento === 'SALIDA') {
-              stockPorRef[key] -= (m.cantidad || 1)
-            }
-          })
+        const reales = refs.map(r=>({
+          id: r.id, nombre: r.id, categoria: r.tipo, precio: 25000,
+          stock: stockPorRef[r.id]||0, tallas: r.especificaciones||[]
+        }))
+
+        setProductos(reales); setDemo(false)
+
+        // 4. ADEMAS JALAR CATEGORIAS REALES DE SUPABASE POR EMPRESA PARA DROPDOWN
+        const { data: catsDB } = await supabase.from('categorias_stockos').select('nombre').eq('empresa_id', empresaId)
+        if (catsDB && catsDB.length>0) {
+          setCategorias(catsDB.map(c=>c.nombre))
         }
 
-        // 4. Convertir a formato catálogo
-        const reales = Object.keys(stockPorRef).map((nombreRef, idx) => {
-          // Buscar si tiene foto o precio en localStorage (compatibilidad)
-          const precio = 25000 + (idx * 5000)
-          return {
-            id: nombreRef,
-            nombre: nombreRef,
-            categoria: tipoPorRef[nombreRef] || 'Calzado Niños',
-            precio: precio,
-            stock: Math.max(0, stockPorRef[nombreRef]),
-            esReal: true,
-            tallas: [...new Set(refs.filter(r => r.nombre_referencia === nombreRef).map(r => r.talla))]
-          }
-        })
-
-        if (reales.length > 0) {
-          setProductosReales(reales)
-          setUsandoDemo(false)
-        } else {
-          setUsandoDemo(true)
-        }
-      } catch (e) {
-        console.log('Catalogo real error (usa demo):', e)
-        setUsandoDemo(true)
-      } finally {
-        setLoading(false)
-      }
+      } catch { setDemo(true) }
     }
-
-    cargarCatalogoReal()
+    cargar()
   }, [empresaId])
 
-  const catalogoAMostrar = usandoDemo ? DEMO_CATALOGO : productosReales
-
-  const categorias = useMemo(() => {
-    const cats = [...new Set(catalogoAMostrar.map(p => p.categoria))]
-    return ['Todas', ...cats]
-  }, [catalogoAMostrar])
-
-  const filtrados = useMemo(() => {
-    return catalogoAMostrar.filter(p => {
-      const matchBusqueda = p.nombre.toLowerCase().includes(busqueda.toLowerCase()) || p.id.toLowerCase().includes(busqueda.toLowerCase())
-      const matchCat = categoriaFiltro === 'Todas' || p.categoria === categoriaFiltro
-      // Si es real, solo mostrar si tiene stock >0 (opcional, puedes quitar esta linea si quieres mostrar todo)
-      // const tieneStock = usandoDemo ? true : p.stock > 0
-      return matchBusqueda && matchCat
-    })
-  }, [catalogoAMostrar, busqueda, categoriaFiltro])
+  const lista = demo? DEMO : productos
+  const catsDrop = demo? ['Todas',...new Set(lista.map(p=>p.categoria))] : ['Todas',...categorias]
+  const filtrados = lista.filter(p=> p.nombre.toLowerCase().includes(busqueda.toLowerCase()) && (filtro==='Todas' || p.categoria===filtro))
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center flex-wrap gap-2">
-        <div>
-          <h2 className="text-xl font-black uppercase">CATALOGO PUBLICO</h2>
-          <p className="text-sm text-gray-500">
-            {empresa?.nombre || 'Máxima Importadores'} - {filtrados.length} productos {usandoDemo ? '(DEMO)' : '(REAL - Supabase)'}
-            {loading && ' - Cargando stock real...'}
-          </p>
-        </div>
-        {!usandoDemo && <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-black">✓ CONECTADO A STOCK REAL</span>}
-        {usandoDemo && <span className="bg-gray-200 text-gray-600 px-3 py-1 rounded-full text-xs font-bold">MODO DEMO</span>}
-      </div>
-
-      <div className="flex flex-col md:flex-row gap-3">
-        <input
-          value={busqueda}
-          onChange={e => setBusqueda(e.target.value)}
-          placeholder="Buscar por referencia... Ej: MAXIMA NINOS"
-          className="border p-2.5 rounded-lg text-sm flex-1"
-        />
-        <select value={categoriaFiltro} onChange={e => setCategoriaFiltro(e.target.value)} className="border p-2.5 rounded-lg text-sm font-bold bg-white min-w-[200px]">
-          {categorias.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </div>
-
-      {filtrados.length === 0 ? (
-        <div className="bg-white border-2 border-dashed rounded-lg p-8 text-center">
-          <p className="text-sm text-gray-500">No hay productos. {usandoDemo ? 'Crea referencias en Bodega Stock + Pistola' : 'Verifica stock en Bodega Stock + Pistola'}</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {filtrados.map(p => (
-            <div key={p.id} className="bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition">
-              <div className="text-xs text-gray-500 font-mono">{p.id}</div>
-              <div className="font-black text-sm mt-1 uppercase">{p.nombre}</div>
-              <div className="text-xs text-gray-500">{p.categoria} {p.tallas ? `- Tallas: ${p.tallas.join(', ')}` : ''}</div>
-              <div className="mt-3 flex justify-between items-center">
-                <div className="font-black text-base">${p.precio.toLocaleString()}</div>
-                <div className={`px-2 py-1 rounded-full text-xs font-black ${p.stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {p.stock > 0 ? `Stock: ${p.stock}` : 'Sin stock'}
-                </div>
-              </div>
-              {p.esReal && (
-                <div className="mt-2 text-[10px] text-gray-400">Ref real de Supabase - empresa {String(empresaId).slice(0,8)}</div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs">
-        <strong>BLINDADO:</strong> Si estás en Máxima (ID {String(empresaId).slice(0,13)}...), este catálogo ahora lee tus referencias reales de <code>referencias_stockos</code> y calcula stock desde <code>movimientos_stock</code>. Si no hay datos, sigue mostrando el demo sin romperse. No daña Bodega ni Pistola.
-      </div>
+      <div className="flex justify-between"><div><h2 className="text-xl font-black">CATALOGO PUBLICO</h2><p className="text-sm text-gray-500">{empresa?.nombre} - {filtrados.length} productos</p></div><span className={`px-3 py-1 rounded-full text-xs font-bold ${demo?'bg-gray-200':'bg-green-600 text-white'}`}>{demo?'MODO DEMO':'POR EMPRESA'}</span></div>
+      <div className="flex gap-3"><input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar..." className="border p-2.5 rounded-lg flex-1 text-sm"/><select value={filtro} onChange={e=>setFiltro(e.target.value)} className="border p-2.5 rounded-lg text-sm font-bold bg-white min-w-">{catsDrop.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">{filtrados.map(p=><div key={p.id} className="bg-white border rounded-lg p-4"><div className="text-xs font-mono text-gray-500">{p.id}</div><div className="font-black text-sm uppercase">{p.nombre}</div><div className="text-xs text-gray-500">{p.categoria} {p.tallas?.length?`- ${p.tallas.join(', ')}`:''}</div><div className="mt-3 flex justify-between"><div className="font-black">${p.precio.toLocaleString()}</div><div className={`px-2 py-1 rounded-full text-xs font-black ${p.stock>0?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.stock>0?`Stock: ${p.stock}`:'Sin stock'}</div></div></div>)}</div>
     </div>
   )
 }
