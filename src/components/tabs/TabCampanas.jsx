@@ -88,3 +88,48 @@ export default function TabCampanas({ empresa }) {
           <div className="font-black text-sm">CONFIGURACION RRSS POR EMPRESA - {empresa?.nombre}</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <input value={rrss.facebook_url} onChange={e=>setRrss({...rrss, facebook_url:e.target.value})} placeholder="Facebook URL" className="border p-2 rounded text-xs"/>
+            <input value={rrss.instagram_url} onChange={e=>setRrss({...rrss, instagram_url:e.target.value})} placeholder="Instagram URL" className="border p-2 rounded text-xs"/>
+            <input value={rrss.tiktok_url} onChange={e=>setRrss({...rrss, tiktok_url:e.target.value})} placeholder="TikTok URL" className="border p-2 rounded text-xs"/>
+            <input value={rrss.pagina_web} onChange={e=>setRrss({...rrss, pagina_web:e.target.value})} placeholder="Pagina web" className="border p-2 rounded text-xs"/>
+            <input value={rrss.whatsapp_numero} onChange={e=>setRrss({...rrss, whatsapp_numero:e.target.value})} placeholder="WhatsApp Carlos" className="border p-2 rounded text-xs font-bold col-span-2"/>
+          </div>
+          <button onClick={guardarRrss} className="bg-black text-white px-6 py-2 rounded font-black text-xs">GUARDAR RRSS POR EMPRESA</button>
+        </div>
+      )}
+
+      {tab==='botcaza' && (
+        <div className="space-y-3">
+          <div className="bg-white border-2 border-black rounded-lg p-4">
+            <div className="font-black text-sm">BOT CAZA / CONFIRMACION - ES LO MISMO - WHATSAPP DE CARLOS</div>
+            <p className="text- text-gray-500">Bot que confirma pedidos y caza clientes. Está en WhatsApp de Carlos.</p>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mt-3">
+              <input value={nuevoGrupo.nombre_grupo} onChange={e=>setNuevoGrupo({...nuevoGrupo, nombre_grupo:e.target.value})} placeholder="Nombre grupo confirmacion" className="border p-2 rounded text-xs font-bold"/>
+              <input value={nuevoGrupo.whatsapp_id} onChange={e=>setNuevoGrupo({...nuevoGrupo, whatsapp_id:e.target.value})} placeholder="ID WhatsApp" className="border p-2 rounded text-xs"/>
+              <input value={nuevoGrupo.link_invitacion} onChange={e=>setNuevoGrupo({...nuevoGrupo, link_invitacion:e.target.value})} placeholder="Link invitacion" className="border p-2 rounded text-xs"/>
+              <input value={nuevoGrupo.admin} onChange={e=>setNuevoGrupo({...nuevoGrupo, admin:e.target.value})} placeholder="Carlos" className="border p-2 rounded text-xs"/>
+            </div>
+            <button onClick={()=>{setNuevoGrupo({...nuevoGrupo, tipo:'CONFIRMACION'}); setTimeout(agregarGrupo,100)}} className="mt-3 bg-black text-white px-6 py-2 rounded font-black text-xs">+ GUARDAR BOT CAZA / CONFIRMACION</button>
+          </div>
+          <div className="bg-white border-2 border-black rounded-lg overflow-hidden"><div className="bg-green-600 text-white p-2 font-black text-xs">BOT CAZA / CONFIRMACION - {gruposConfirmacion.length} grupos - ES LO MISMO</div><div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-2">{gruposConfirmacion.length===0 && <p className="text- text-gray-400 col-span-2 text-center py-4">Sin grupos aún. Cuadro listo.</p>}{gruposConfirmacion.map(g=><div key={g.id} className="border rounded p-2 flex justify-between"><div><div className="font-bold text-xs">{g.nombre_grupo}</div><div className="text-">ID:{g.whatsapp_id} Admin:{g.admin}</div></div><button onClick={()=>eliminarGrupo(g.id)} className="bg-red-600 text-white w-5 h-5 rounded-full text-">X</button></div>)}</div></div>
+        </div>
+      )}
+
+      {tab==='difusion' && (
+        <div className="space-y-3">
+          <div className="bg-white border-2 border-purple-600 rounded-lg p-4">
+            <div className="font-black text-sm">GRUPOS DE DIFUSION DE MAXIMA - ADMIN CARLOS - DIFUSION Y COMUNIDAD ES LO MISMO</div>
+            <p className="text- text-gray-500">Grupos que Carlos administra en su WhatsApp. Difusion y Comunidad es lo mismo.</p>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mt-3">
+              <input value={nuevoGrupo.nombre_grupo} onChange={e=>setNuevoGrupo({...nuevoGrupo, nombre_grupo:e.target.value})} placeholder="Ej Difusion Maxima" className="border p-2 rounded text-xs font-bold"/>
+              <input value={nuevoGrupo.whatsapp_id} onChange={e=>setNuevoGrupo({...nuevoGrupo, whatsapp_id:e.target.value})} placeholder="ID WhatsApp" className="border p-2 rounded text-xs"/>
+              <input value={nuevoGrupo.link_invitacion} onChange={e=>setNuevoGrupo({...nuevoGrupo, link_invitacion:e.target.value})} placeholder="Link" className="border p-2 rounded text-xs"/>
+              <input value={nuevoGrupo.admin} onChange={e=>setNuevoGrupo({...nuevoGrupo, admin:e.target.value})} placeholder="Carlos" className="border p-2 rounded text-xs"/>
+            </div>
+            <button onClick={()=>{setNuevoGrupo({...nuevoGrupo, tipo:'DIFUSION'}); setTimeout(agregarGrupo,100)}} className="mt-3 bg-purple-600 text-white px-6 py-2 rounded font-black text-xs">+ GUARDAR DIFUSION MAXIMA</button>
+          </div>
+          <div className="bg-white border-2 border-black rounded-lg overflow-hidden"><div className="bg-black text-white p-2 font-black text-xs">DIFUSION MAXIMA ADMIN CARLOS - DIFUSION Y COMUNIDAD ES LO MISMO - {gruposDifusion.length} grupos</div><div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-2">{gruposDifusion.length===0 && <p className="text- text-gray-400 col-span-2 text-center py-4">Sin grupos aún. Cuadro listo para cuando configures los grupos de Maxima que administra Carlos.</p>}{gruposDifusion.map(g=><div key={g.id} className="border rounded p-2 flex justify-between"><div><div className="font-bold text-xs">{g.nombre_grupo}</div><div className="text-">ID:{g.whatsapp_id} Admin:{g.admin} ✅ Carlos dentro</div>{g.link_invitacion && <div className="text- text-blue-600 break-all">{g.link_invitacion}</div>}</div><button onClick={()=>eliminarGrupo(g.id)} className="bg-red-600 text-white w-5 h-5 rounded-full text-">X</button></div>)}</div></div>
+        </div>
+      )}
+    </div>
+  )
+}
