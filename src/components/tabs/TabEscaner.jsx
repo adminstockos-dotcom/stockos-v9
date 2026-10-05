@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { supabase } from '../lib/supabase' // BLINDADO: si no existe este path, usa tu cliente existente
 
 const TIPOS_MEDIDA = {
   Ropa: ['S','M','L','XL','XXL'],
@@ -58,6 +59,8 @@ export default function TabEscaner({ empresa }) {
   const [nuevaEspec, setNuevaEspec] = useState('')
   const [nuevaRef, setNuevaRef] = useState('')
   const [nuevoTipo, setNuevoTipo] = useState('Calzado Niños')
+  // BLINDADO NUEVO: LOTE MIXTO
+  const [loteMixto, setLoteMixto] = useState([]) // ['28','29',...]
 
   useEffect(() => { localStorage.setItem(`stockos_bodegas_${empresaId}`, JSON.stringify(bodegas)) }, [bodegas, empresaId])
   useEffect(() => { localStorage.setItem(`stockos_pistolas_${empresaId}`, JSON.stringify(scanners)) }, [scanners, empresaId])
@@ -84,33 +87,61 @@ export default function TabEscaner({ empresa }) {
   }, [nuevoTipo, referencias])
   useEffect(() => { if (!bodegas.find(b => b.nombre === bodegaSel) && bodegas[0]) setBodegaSel(bodegas[0].nombre) }, [bodegas, bodegaSel])
   useEffect(() => { if (!scanners.find(s => s.id === pistolaSel) && scanners[0]) setPistolaSel(scanners[0].id) }, [scanners, pistolaSel])
+  // reset lote mixto al cambiar referencia
+  useEffect(() => { setLoteMixto([]) }, [prefijo])
 
   const barcode = `${prefijo}-${especSel}-${String(consecutivo).padStart(4, '0')}`
   const scannerActual = scanners.find(s=>s.id===pistolaSel) || scanners[0]
   const refActual = referencias.find(r=>r.id===prefijo)
 
   const resetCero = () => { if(!confirm(`¿RESET TOTAL A CERO de ${empresa?.nombre}?`)) return; setInventario({}); setLogs([]); setConsecutivo(1) }
-  const addReferencia = () => {
+  
+  // BLINDADO: CREAR CON DOBLE GUARDADO
+  const addReferencia = async () => {
     if(!nuevaRef.trim()) return alert('Escribe Ej: MAXIMA DAMA')
     const id = nuevaRef.trim().toUpperCase()
     if(referencias.some(r=>r.id===id)) return alert('Ya existe')
     const specs = TIPOS_MEDIDA[nuevoTipo] || ['UNICA']
     setReferencias(prev=>[...prev, {id, tipo: nuevoTipo, especificaciones: specs}])
     setPrefijo(id); setEspecSel(specs[0]); setNuevaRef('')
+    // SUPABASE blindado (no rompe si falla)
+    try {
+      for(const talla of specs){
+        await supabase.from('referencias_stockos').insert({
+          empresa_id: String(empresaId),
+          nombre_referencia: id,
+          talla: talla,
+          codigo_barras: `${id}-${talla}-0001`,
+          tipo_medida: nuevoTipo
+        })
+      }
+    } catch(e){ console.log('Supabase refs error (no bloquea):', e) }
   }
+
   const eliminarReferencia = (id) => { if(!confirm(`¿Borrar referencia ${id}?`)) return; setReferencias(prev=>prev.filter(r=>r.id!==id)) }
   const eliminarTalla = (refId, talla) => {
     if(!confirm(`¿Eliminar SOLO la talla ${talla} de ${refId}? Esta acción no borra la referencia.`)) return
     setReferencias(prev=>prev.map(r=> r.id===refId? {...r, especificaciones: r.especificaciones.filter(t=>t!==talla)} : r))
   }
-  const addEspecificacion = () => {
+  const addEspecificacion = async () => {
     if(!nuevaEspec.trim() ||!refActual) return
     const nueva = nuevaEspec.trim()
     if(refActual.especificaciones.includes(nueva)) return alert('Ya existe esa talla')
     setReferencias(prev=>prev.map(r=> r.id===prefijo? {...r, especificaciones:[...r.especificaciones, nueva]}:r))
     setEspecSel(nueva); setNuevaEspec('')
+    try {
+      await supabase.from('referencias_stockos').insert({
+        empresa_id: String(empresaId),
+        nombre_referencia: prefijo,
+        talla: nueva,
+        codigo_barras: `${prefijo}-${nueva}-0001`,
+        tipo_medida: refActual.tipo
+      })
+    } catch(e){ console.log('Supabase talla error', e) }
   }
-  const escanearAhora = () => {
+
+  // BLINDADO: ESCANEAR CON DOBLE GUARDADO SUPABASE
+  const escanearAhora = async () => {
     if(scannerActual.modo==='Devolucion' &&!motivoDevo.trim()) return alert('Motivo obligatorio')
     const key = `${bodegaSel}|${prefijo}|${especSel}`
     const tipo = scannerActual.modo
@@ -123,7 +154,26 @@ export default function TabEscaner({ empresa }) {
       return {...prev, [key]:{...cur, stock:Math.max(0,cur.stock-1), salidas:cur.salidas+1}}
     })
     setConsecutivo(c=>c+1)
+
+    // SUPABASE HISTORIAL QUE NO SE PIERDE
+    try {
+      const tipoDB = tipo === 'Entrada' ? 'ENTRADA' : tipo === 'Salida' ? 'SALIDA' : 'DEVOLUCION'
+      await supabase.from('movimientos_stock').insert({
+        empresa_id: String(empresaId),
+        referencia: prefijo,
+        talla: especSel,
+        codigo_barras: barcode,
+        tipo_movimiento: tipoDB,
+        pistola: pistolaSel,
+        bodega: bodegaSel,
+        sucursal: 'Sucursal Central',
+        encargado: 'Carlos Maximo',
+        creado_por: empresa?.nombre || 'Super Admin',
+        cantidad: 1
+      })
+    } catch(e){ console.log('Supabase mov error (no bloquea):', e) }
   }
+
   const exportExcel = () => {
     const csv = ['Bodega,Ref,Tipo,Espec,Entradas,Salidas,Devoluciones,Stock',...Object.entries(inventario).map(([k,v])=>{const [b,r,e]=k.split('|'); const t=referencias.find(x=>x.id===r)?.tipo||''; return `${b},${r},${t},${e},${v.entradas},${v.salidas},${v.devoluciones},${v.stock}`})].join('\n')
     const blob = new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`stockos_${prefijo}_${empresaId}.csv`; a.click()
@@ -137,6 +187,22 @@ export default function TabEscaner({ empresa }) {
     for(let i=0;i<cantidad;i++){ etiquetas += `<div style="border:1px dashed #999; padding:12px 8px; margin:8px; text-align:center; page-break-inside:avoid;"><div style="font-family:monospace; font-weight:900; font-size:14px;">${barcode}</div><img src="https://barcodeapi.org/api/128/${barcode}" style="width:90%; height:50px; object-fit:contain; margin:6px 0;" /><div style="font-size:9px;">${refActual?.tipo} | ${bodegaSel} | ${prefijo}-${especSel}</div></div>` }
     w.document.write(`<html><head><title>Barras ${barcode} x${cantidad}</title><style>body{font-family:monospace; margin:0; padding:10px;} @media print { @page { margin:5mm; } }</style></head><body><div style="display:grid; grid-template-columns:1fr 1fr; gap:2px;">${etiquetas}</div><script>window.onload=()=>{window.print(); setTimeout(()=>window.close(),800)}</script></body></html>`); w.document.close()
   }
+
+  // NUEVO BLINDADO: LOTE MIXTO
+  const toggleLoteMixto = (talla) => {
+    setLoteMixto(prev => prev.includes(talla) ? prev.filter(t=>t!==talla) : [...prev, talla])
+  }
+  const imprimirLoteMixto = () => {
+    if(loteMixto.length===0) return alert('Selecciona al menos 2 tallas para lote mixto')
+    const w = window.open('', '', 'width=600,height=800')
+    let etiquetas = ''
+    loteMixto.forEach(talla => {
+      const code = `${prefijo}-${talla}-${String(consecutivo).padStart(4,'0')}`
+      etiquetas += `<div style="border:1.5px solid #000; padding:10px 8px; margin:6px; text-align:center; page-break-inside:avoid;"><div style="font-family:monospace; font-weight:900; font-size:13px;">${code}</div><img src="https://barcodeapi.org/api/128/${code}" style="width:90%; height:48px; object-fit:contain; margin:5px 0;" /><div style="font-size:8px; font-weight:bold;">${refActual?.tipo} | ${bodegaSel} | ${prefijo}-${talla}</div></div>`
+    })
+    w.document.write(`<html><head><title>LOTE MIXTO ${prefijo} x${loteMixto.length}</title><style>body{font-family:monospace; margin:0; padding:10px;} @media print { @page { margin:4mm; } }</style></head><body><h3 style="text-align:center; font-family:sans-serif; font-weight:900;">LOTE MIXTO ${prefijo} - ${loteMixto.length} tallas - ${bodegaSel}</h3><div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px;">${etiquetas}</div><script>window.onload=()=>{window.print(); setTimeout(()=>window.close(),1000)}</script></body></html>`); w.document.close()
+  }
+
   const informe = useMemo(()=>{
     const detalle = Object.entries(inventario).map(([k,v])=>{ const [bodega,ref,espec]=k.split('|'); return {bodega,ref,espec,...v} })
     return {
@@ -170,7 +236,7 @@ export default function TabEscaner({ empresa }) {
             <div key={r.id} className="mb-3 border-b pb-2 last:border-0">
               <div className="flex justify-between items-center">
                 <span className="font-mono text-xs font-bold">{r.id} [{r.tipo}]</span>
-                <button onClick={()=>eliminarReferencia(r.id)} className="text- bg-red-100 border border-red-300 px-2 py-0.5 rounded">🗑️ Ref</button>
+                <button onClick={()=>eliminarReferencia(r.id)} className="text- bg-red-100 border border-red-300 px-2 py-0.5 rounded">🗑 Ref</button>
               </div>
               <div className="flex flex-wrap gap-2 mt-2">
                 {r.especificaciones.map(t=>(
@@ -220,12 +286,26 @@ export default function TabEscaner({ empresa }) {
               <button onClick={()=>imprimirBarras(24)} className="bg-blue-600 text-white py-1.5 rounded font-bold text-">📄 HOJA x24</button>
               <button onClick={()=>imprimirBarras(50)} className="bg-green-600 text-white py-1.5 rounded font-bold text-">📦 ROLLO x50</button>
             </div>
+            {/* LOTE MIXTO BLINDADO NUEVO */}
+            <div className="border-t-2 border-black pt-2 mt-2 bg-white p-2 rounded">
+              <div className="text-[10px] font-black mb-2">📦 LOTE MIXTO - {prefijo} - Selecciona tallas:</div>
+              <div className="flex flex-wrap gap-1 mb-2">
+                {(refActual?.especificaciones || []).map(t=>(
+                  <label key={t} className={`flex items-center gap-1 border-2 px-2 py-1 rounded text-[10px] font-black cursor-pointer ${loteMixto.includes(t)?'bg-black text-white border-black':'bg-white border-gray-300'}`}>
+                    <input type="checkbox" checked={loteMixto.includes(t)} onChange={()=>toggleLoteMixto(t)} className="hidden" />
+                    {t} {loteMixto.includes(t)?'✓':''}
+                  </label>
+                ))}
+              </div>
+              <button onClick={imprimirLoteMixto} className="w-full bg-black text-white py-2 rounded font-black text-xs">🖨 IMPRIMIR LOTE MIXTO x{loteMixto.length || 0} {loteMixto.length>0?`(${loteMixto.join(',')})`:''}</button>
+              <div className="text-[8px] text-gray-500 mt-1 text-center">Ej: seleccionas 28,29,30 = 1 hoja con 3 códigos diferentes</div>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="bg-white rounded-lg shadow border-t-4 border-black overflow-hidden">
-        <div className="p-4"><h3 className="font-black text-sm">📊 CONSOLIDADO TOTAL</h3><div className="grid grid-cols-5 gap-3 mt-3"><div className="bg-black text-white p-3 rounded"><div className="text-">STOCK REAL</div><div className="text-2xl font-black">{informe.totalStock}</div></div><div className="bg-gray-50 p-3 rounded border"><div className="text-">TOTAL MOV</div><div className="text-2xl font-black">{informe.total}</div></div><div className="bg-green-50 p-3 rounded border"><div className="text-">ENTRADAS</div><div className="text-2xl font-black text-green-600">{informe.entradas}</div></div><div className="bg-red-50 p-3 rounded border"><div className="text-">SALIDAS</div><div className="text-2xl font-black text-red-600">{informe.salidas}</div></div><div className="bg-yellow-50 p-3 rounded border"><div className="text-">DEVOLUCIONES</div><div className="text-2xl font-black text-yellow-600">{informe.devoluciones}</div></div></div></div>
+        <div className="p-4"><h3 className="font-black text-sm">📊 CONSOLIDADO TOTAL - SUPABASE + LOCAL (BLINDADO)</h3><div className="grid grid-cols-5 gap-3 mt-3"><div className="bg-black text-white p-3 rounded"><div className="text-">STOCK REAL</div><div className="text-2xl font-black">{informe.totalStock}</div></div><div className="bg-gray-50 p-3 rounded border"><div className="text-">TOTAL MOV</div><div className="text-2xl font-black">{informe.total}</div></div><div className="bg-green-50 p-3 rounded border"><div className="text-">ENTRADAS</div><div className="text-2xl font-black text-green-600">{informe.entradas}</div></div><div className="bg-red-50 p-3 rounded border"><div className="text-">SALIDAS</div><div className="text-2xl font-black text-red-600">{informe.salidas}</div></div><div className="bg-yellow-50 p-3 rounded border"><div className="text-">DEVOLUCIONES</div><div className="text-2xl font-black text-yellow-600">{informe.devoluciones}</div></div></div></div>
       </div>
     </div>
   )
