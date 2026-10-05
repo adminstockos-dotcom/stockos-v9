@@ -1,165 +1,83 @@
-import { useState } from 'react'
-
-const CAMPANAS = [
-  { id: 1, nombre: 'Venta Flash Herramientas', tipo: 'IA', estado: 'Activa', enviados: 12450, abiertos: 8934, conversion: '12.4%', fecha: '2026-09-25' },
-  { id: 2, nombre: 'Bot Caza — Clientes Inactivos', tipo: 'BOT CAZA', estado: 'Activa', enviados: 5670, abiertos: 3210, conversion: '8.7%', fecha: '2026-09-20' },
-  { id: 3, nombre: 'Promo Fin de Semana', tipo: 'IA', estado: 'Pausada', enviados: 8900, abiertos: 5400, conversion: '15.2%', fecha: '2026-09-15' },
-  { id: 4, nombre: 'Reactivación Septiembre', tipo: 'BOT CAZA', estado: 'Activa', enviados: 3200, abiertos: 1890, conversion: '6.3%', fecha: '2026-09-01' },
-  { id: 5, nombre: 'Lanzamiento Nuevo Catalogo', tipo: 'IA', estado: 'Finalizada', enviados: 15000, abiertos: 11200, conversion: '18.9%', fecha: '2026-08-28' },
-]
-
-const BOT_LOGS = [
-  { id: 1, bot: 'BOT CAZA', accion: 'Mensaje enviado', detalle: 'cliente@empresa.cl — Oferta especial herramientas', fecha: '2026-09-28 14:30', estado: 'Exitoso' },
-  { id: 2, bot: 'BOT CAZA', accion: 'Respuesta recibida', detalle: 'cliente2@empresa.cl — Solicitó más info', fecha: '2026-09-28 14:25', estado: 'Exitoso' },
-  { id: 3, bot: 'IA', accion: 'Campaña generada', detalle: 'Venta Flash Herramientas — 12,450 destinatarios', fecha: '2026-09-28 14:20', estado: 'Exitoso' },
-  { id: 4, bot: 'BOT CAZA', accion: 'Mensaje enviado', detalle: 'cliente3@empresa.cl — Reactivación', fecha: '2026-09-28 14:15', estado: 'Exitoso' },
-  { id: 5, bot: 'IA', accion: 'Optimización', detalle: 'Segmentación actualizada — +15% apertura', fecha: '2026-09-28 14:10', estado: 'Exitoso' },
-  { id: 6, bot: 'BOT CAZA', accion: 'Error de envío', detalle: 'cliente4@empresa.cl — Email inválido', fecha: '2026-09-28 14:05', estado: 'Fallido' },
-]
+import { useState, useEffect } from 'react'
+import { supabase } from '../../lib/supabase.js'
 
 export default function TabCampanas({ empresa }) {
-  const [view, setView] = useState('campanas')
+  const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
+  const [tab, setTab] = useState('campanas') // campanas | rrss | botcaza | difusion
+  const [rrss, setRrss] = useState({ facebook_url:'', instagram_url:'', tiktok_url:'', whatsapp_numero:'573177384534', pagina_web:'' })
+  const [grupos, setGrupos] = useState([])
+  const [campanas, setCampanas] = useState([])
+  const [nuevoGrupo, setNuevoGrupo] = useState({ nombre_grupo:'', tipo:'DIFUSION', whatsapp_id:'', link_invitacion:'', admin:'Carlos', incluye_carlos:true })
+  const [abierto, setAbierto] = useState(null)
+
+  useEffect(()=>{ cargarTodo() }, [empresaId])
+
+  const cargarTodo = async () => {
+    try {
+      const { data: r } = await supabase.from('empresas_rrss_config').select('*').eq('empresa_id', empresaId).limit(1).maybeSingle()
+      if (r) setRrss(r)
+      const { data: g } = await supabase.from('grupos_difusion_config').select('*').eq('empresa_id', empresaId).order('tipo')
+      if (g) setGrupos(g)
+      const { data: c } = await supabase.from('campanas_config').select('*').eq('empresa_id', empresaId).order('fecha', {ascending:false})
+      if (c) setCampanas(c)
+    } catch {}
+  }
+
+  const guardarRrss = async () => {
+    await supabase.from('empresas_rrss_config').upsert({ empresa_id: empresaId,...rrss, updated_at: new Date() }, { onConflict:'empresa_id' })
+    alert('✅ RRSS guardadas por empresa: ' + empresa?.nombre)
+  }
+
+  const agregarGrupo = async () => {
+    if (!nuevoGrupo.nombre_grupo.trim()) return alert('Nombre del grupo obligatorio')
+    const { data, error } = await supabase.from('grupos_difusion_config').insert({ empresa_id: empresaId,...nuevoGrupo }).select().single()
+    if (!error && data) { setGrupos(prev=>[...prev, data]); setNuevoGrupo({ nombre_grupo:'', tipo:'DIFUSION', whatsapp_id:'', link_invitacion:'', admin:'Carlos', incluye_carlos:true }) }
+  }
+
+  const eliminarGrupo = async (id) => {
+    if (!confirm('¿Borrar grupo?')) return
+    await supabase.from('grupos_difusion_config').delete().eq('id', id)
+    setGrupos(prev=>prev.filter(g=>g.id!==id))
+  }
+
+  const tipos = {
+    COMUNIDAD: grupos.filter(g=>g.tipo==='COMUNIDAD'),
+    DIFUSION: grupos.filter(g=>g.tipo==='DIFUSION'),
+    CONFIRMACION: grupos.filter(g=>g.tipo==='CONFIRMACION'),
+    BOT_CAZA: grupos.filter(g=>g.tipo==='BOT_CAZA')
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex justify-between items-center flex-wrap gap-2">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Campañas IA + BOT CAZA</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            {empresa ? `Automatización de marketing de ${empresa.nombre}` : 'Automatización de marketing y captación de clientes'}
-          </p>
+          <h2 className="text-xl font-black uppercase">CAMPAÑAS IA + BOT CAZA</h2>
+          <p className="text-sm text-gray-500">{empresa?.nombre} - WhatsApp Carlos: {rrss.whatsapp_numero} - RRSS + Grupos Difusión Máxima</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setView('campanas')}
-            className={view === 'campanas' ? 'btn-primary' : 'btn-secondary'}
-          >
-            Campañas
-          </button>
-          <button
-            onClick={() => setView('bot')}
-            className={view === 'bot' ? 'btn-primary' : 'btn-secondary'}
-          >
-            Bot Caza
-          </button>
+          <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-black">POR EMPRESA</span>
         </div>
       </div>
 
-      {view === 'campanas' ? (
-        <>
-          {/* Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="card !p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase">Campañas Activas</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">{CAMPANAS.filter(c => c.estado === 'Activa').length}</p>
-            </div>
-            <div className="card !p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase">Total Enviados</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{CAMPANAS.reduce((a, c) => a + c.enviados, 0).toLocaleString()}</p>
-            </div>
-            <div className="card !p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase">Tasa Apertura Promedio</p>
-              <p className="text-2xl font-bold text-blue-600 mt-1">68.2%</p>
-            </div>
-            <div className="card !p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase">Conversión Promedio</p>
-              <p className="text-2xl font-bold text-purple-600 mt-1">12.3%</p>
-            </div>
-          </div>
+      {/* TABS */}
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={()=>setTab('campanas')} className={`${tab==='campanas'?'bg-black text-white':'bg-white border'} px-4 py-2 rounded font-black text-xs`}>📊 Campañas</button>
+        <button onClick={()=>setTab('rrss')} className={`${tab==='rrss'?'bg-black text-white':'bg-white border'} px-4 py-2 rounded font-black text-xs`}>📱 RRSS Empresa</button>
+        <button onClick={()=>setTab('botcaza')} className={`${tab==='botcaza'?'bg-black text-white':'bg-white border'} px-4 py-2 rounded font-black text-xs`}>🤖 Bot Caza / Confirmación</button>
+        <button onClick={()=>setTab('difusion')} className={`${tab==='difusion'?'bg-black text-white':'bg-white border'} px-4 py-2 rounded font-black text-xs`}>📢 Grupos Difusión Máxima</button>
+      </div>
 
-          {/* Table */}
-          <div className="card !p-0 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="th">Campaña</th>
-                    <th className="th">Tipo</th>
-                    <th className="th">Estado</th>
-                    <th className="th">Enviados</th>
-                    <th className="th">Abiertos</th>
-                    <th className="th">Conversión</th>
-                    <th className="th">Fecha</th>
-                    <th className="th text-center">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {CAMPANAS.map((c) => (
-                    <tr key={c.id} className="hover:bg-gray-50 transition">
-                      <td className="td font-medium text-gray-900">{c.nombre}</td>
-                      <td className="td">
-                        <span className={c.tipo === 'IA' ? 'badge-purple badge' : 'badge-blue'}>{c.tipo}</span>
-                      </td>
-                      <td className="td">
-                        <span className={c.estado === 'Activa' ? 'badge-green' : c.estado === 'Pausada' ? 'badge-yellow' : 'badge-gray'}>
-                          {c.estado}
-                        </span>
-                      </td>
-                      <td className="td">{c.enviados.toLocaleString()}</td>
-                      <td className="td">{c.abiertos.toLocaleString()}</td>
-                      <td className="td font-medium text-green-600">{c.conversion}</td>
-                      <td className="td text-gray-500 text-xs">{c.fecha}</td>
-                      <td className="td text-center">
-                        <button className="text-brand-600 hover:text-brand-700 text-xs font-medium">Ver</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      ) : (
+      {tab==='campanas' && (
         <>
-          {/* Bot Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="card !p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase">Mensajes Hoy</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">1,247</p>
-            </div>
-            <div className="card !p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase">Tasa Respuesta</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">34.5%</p>
-            </div>
-            <div className="card !p-4">
-              <p className="text-xs text-gray-500 font-medium uppercase">Clientes Recuperados</p>
-              <p className="text-2xl font-bold text-blue-600 mt-1">89</p>
-            </div>
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-white border rounded p-4"><div className="text- text-gray-500 font-bold">CAMPAÑAS ACTIVAS</div><div className="text-2xl font-black text-green-600">{campanas.filter(c=>c.estado==='Activa').length || 3}</div></div>
+            <div className="bg-white border rounded p-4"><div className="text- text-gray-500 font-bold">TOTAL ENVIADOS</div><div className="text-2xl font-black">45.220</div></div>
+            <div className="bg-white border rounded p-4"><div className="text- text-gray-500 font-bold">TASA APERTURA PROMEDIO</div><div className="text-2xl font-black text-blue-600">68.2%</div></div>
+            <div className="bg-white border rounded p-4"><div className="text- text-gray-500 font-bold">CONVERSIÓN PROMEDIO</div><div className="text-2xl font-black text-purple-600">12.3%</div></div>
           </div>
-
-          {/* Bot Logs */}
-          <div className="card !p-0 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="font-semibold text-gray-900">Actividad del Bot</h3>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {BOT_LOGS.map((log) => (
-                <div key={log.id} className="px-6 py-4 flex items-start gap-4 hover:bg-gray-50 transition">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${log.estado === 'Exitoso' ? 'bg-green-100' : 'bg-red-100'}`}>
-                    {log.estado === 'Exitoso' ? (
-                      <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="badge-blue">{log.bot}</span>
-                      <span className="font-medium text-gray-900 text-sm">{log.accion}</span>
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">{log.detalle}</p>
-                  </div>
-                  <span className="text-xs text-gray-400 flex-shrink-0">{log.fecha}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
+          <div className="bg-white border rounded overflow-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text- font-black"><tr><th className="p-3 text-left">CAMPAÑA</th><th className="p-3">TIPO</th><th className="p-3">ESTADO</th><th className="p-3">ENVIADOS</th><th className="p-3">ABIERTOS</th><th className="p-3">CONVERSIÓN</th><th className="p-3">FECHA</th></tr></thead>
+              <tbody>
+                {(campanas.length>0?campanas:[
+                  {nombre:'Venta Flash Herramientas', tipo:'IA', estado:'Activa', enviados
