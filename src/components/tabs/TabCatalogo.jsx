@@ -15,7 +15,6 @@ export default function TabCatalogo({ empresa }) {
     try {
       const saved = localStorage.getItem(`stockos_proveedores_links_${empresaId}`)
       if (saved) setProveedores(JSON.parse(saved))
-
       const { data } = await supabase.from('proveedores_config').select('*').eq('empresa_id', empresaId)
       if (data && data.length > 0) {
         setProveedores(data.map(p => ({
@@ -36,10 +35,9 @@ export default function TabCatalogo({ empresa }) {
 
   const agregarProveedor = async () => {
     if (!nuevoProv.nombre.trim()) return alert('Nombre del proveedor obligatorio')
-    const nuevo = { ...nuevoProv, activo: true }
+    const nuevo = {...nuevoProv, activo: true }
     setProveedores(prev => [...prev, nuevo])
     setNuevoProv({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
-
     try {
       await supabase.from('proveedores_config').upsert({
         empresa_id: empresaId,
@@ -55,7 +53,7 @@ export default function TabCatalogo({ empresa }) {
 
   const eliminar = async (nombre) => {
     if (!confirm(`¿Borrar enlace de ${nombre}?`)) return
-    setProveedores(prev => prev.filter(p => p.nombre !== nombre))
+    setProveedores(prev => prev.filter(p => p.nombre!== nombre))
     try { await supabase.from('proveedores_config').delete().eq('empresa_id', empresaId).eq('nombre_proveedor', nombre) } catch {}
   }
 
@@ -94,20 +92,22 @@ export default function TabCatalogo({ empresa }) {
         <button onClick={agregarProveedor} className="mt-3 bg-black text-white px-6 py-2 rounded font-black text-xs w-full md:w-auto">+ GUARDAR ENLACE POR EMPRESA</button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 w-full">
         {proveedores.map(p=>(
-          <div key={p.nombre} className="bg-white border-2 border-black rounded-lg p-3 space-y-2">
-            <div className="flex justify-between items-start">
-              <div className="font-black text-sm uppercase">{p.nombre}</div>
-              <button onClick={()=>eliminar(p.nombre)} className="bg-red-600 text-white w-5 h-5 rounded-full text-xs font-black">X</button>
+          <div key={p.nombre} className="bg-white border-2 border-black rounded-lg p-4 w-full">
+            <div className="flex justify-between items-start gap-4 w-full">
+              <div className="flex-1 min-w-0">
+                <div className="font-black text-sm uppercase">{p.nombre}</div>
+                <div className="text-xs space-y-2 mt-2 w-full">
+                  {p.web && <div className="flex gap-2 w-full"><span className="shrink-0">🌐</span><a href={p.web} target="_blank" className="text-blue-600 underline break-all whitespace-normal flex-1">{p.web}</a></div>}
+                  {p.email && <div className="break-all">📧 {p.email} [{p.tipo_archivo}]</div>}
+                  {p.whatsapp && <div className="flex gap-2 w-full"><span className="shrink-0">📲 Grupo:</span><span className="break-all whitespace-normal flex-1 text-">{p.whatsapp}</span></div>}
+                  <div className="text- text-gray-500 mt-2">Escaneo: 8:30 AM y 2:30 PM - Listado maestro por proveedor</div>
+                  <div className={`text- font-black px-2 py-1 rounded-full w-fit ${p.activo?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.activo?'ACTIVO':'INACTIVO'}</div>
+                </div>
+              </div>
+              <button onClick={()=>eliminar(p.nombre)} className="bg-red-600 text-white w-6 h-6 rounded-full text-xs font-black shrink-0">X</button>
             </div>
-            <div className="text-xs space-y-1">
-              {p.web && <div>🌐 <a href={p.web} target="_blank" className="text-blue-600 underline truncate">{p.web}</a></div>}
-              {p.email && <div>📧 {p.email} [{p.tipo_archivo}]</div>}
-              {p.whatsapp && <div>📲 Grupo: {p.whatsapp}</div>}
-              <div className="text-[10px] text-gray-500 mt-2">Escaneo: 8:30 AM y 2:30 PM - Listado maestro por proveedor</div>
-            </div>
-            <div className={`text-[10px] font-black px-2 py-1 rounded-full w-fit ${p.activo?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{p.activo?'ACTIVO':'INACTIVO'}</div>
           </div>
         ))}
       </div>
@@ -118,10 +118,6 @@ export default function TabCatalogo({ empresa }) {
           <p className="text-xs text-gray-400 mt-2">Ejemplo: Proveedor MAXIMA - Web: maxima.com/stock - Email: pedidos@maxima.com (Excel) - WhatsApp: Grupo Difusión MAXIMA</p>
         </div>
       )}
-
-      <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs">
-        <strong>Funcionamiento:</strong> Aquí configuras los enlaces de los proveedores por empresa. STOCKOS a diario 8:30 AM y 2:30 PM hace el escaneo automático de esos enlaces (web, email PDF/Excel, WhatsApp) y saca el listado maestro por proveedor para comparar con tu stock de Bodega Stock + Pistola.
-      </div>
     </div>
   )
 }
