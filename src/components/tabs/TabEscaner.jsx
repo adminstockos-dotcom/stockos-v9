@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { supabase } from '../lib/supabase' // BLINDADO: si no existe este path, usa tu cliente existente
+import { supabase } from '../../lib/supabase.js'
 
 const TIPOS_MEDIDA = {
   Ropa: ['S','M','L','XL','XXL'],
@@ -59,8 +59,9 @@ export default function TabEscaner({ empresa }) {
   const [nuevaEspec, setNuevaEspec] = useState('')
   const [nuevaRef, setNuevaRef] = useState('')
   const [nuevoTipo, setNuevoTipo] = useState('Calzado Niños')
-  // BLINDADO NUEVO: LOTE MIXTO
-  const [loteMixto, setLoteMixto] = useState([]) // ['28','29',...]
+  const [loteMixto, setLoteMixto] = useState([])
+  // NUEVO BLINDADO: ROLLO 20 DIFERENTES
+  const [rollo20, setRollo20] = useState([])
 
   useEffect(() => { localStorage.setItem(`stockos_bodegas_${empresaId}`, JSON.stringify(bodegas)) }, [bodegas, empresaId])
   useEffect(() => { localStorage.setItem(`stockos_pistolas_${empresaId}`, JSON.stringify(scanners)) }, [scanners, empresaId])
@@ -87,7 +88,6 @@ export default function TabEscaner({ empresa }) {
   }, [nuevoTipo, referencias])
   useEffect(() => { if (!bodegas.find(b => b.nombre === bodegaSel) && bodegas[0]) setBodegaSel(bodegas[0].nombre) }, [bodegas, bodegaSel])
   useEffect(() => { if (!scanners.find(s => s.id === pistolaSel) && scanners[0]) setPistolaSel(scanners[0].id) }, [scanners, pistolaSel])
-  // reset lote mixto al cambiar referencia
   useEffect(() => { setLoteMixto([]) }, [prefijo])
 
   const barcode = `${prefijo}-${especSel}-${String(consecutivo).padStart(4, '0')}`
@@ -96,7 +96,6 @@ export default function TabEscaner({ empresa }) {
 
   const resetCero = () => { if(!confirm(`¿RESET TOTAL A CERO de ${empresa?.nombre}?`)) return; setInventario({}); setLogs([]); setConsecutivo(1) }
   
-  // BLINDADO: CREAR CON DOBLE GUARDADO
   const addReferencia = async () => {
     if(!nuevaRef.trim()) return alert('Escribe Ej: MAXIMA DAMA')
     const id = nuevaRef.trim().toUpperCase()
@@ -104,7 +103,6 @@ export default function TabEscaner({ empresa }) {
     const specs = TIPOS_MEDIDA[nuevoTipo] || ['UNICA']
     setReferencias(prev=>[...prev, {id, tipo: nuevoTipo, especificaciones: specs}])
     setPrefijo(id); setEspecSel(specs[0]); setNuevaRef('')
-    // SUPABASE blindado (no rompe si falla)
     try {
       for(const talla of specs){
         await supabase.from('referencias_stockos').insert({
@@ -120,7 +118,7 @@ export default function TabEscaner({ empresa }) {
 
   const eliminarReferencia = (id) => { if(!confirm(`¿Borrar referencia ${id}?`)) return; setReferencias(prev=>prev.filter(r=>r.id!==id)) }
   const eliminarTalla = (refId, talla) => {
-    if(!confirm(`¿Eliminar SOLO la talla ${talla} de ${refId}? Esta acción no borra la referencia.`)) return
+    if(!confirm(`¿Eliminar SOLO la talla ${talla} de ${refId}?`)) return
     setReferencias(prev=>prev.map(r=> r.id===refId? {...r, especificaciones: r.especificaciones.filter(t=>t!==talla)} : r))
   }
   const addEspecificacion = async () => {
@@ -140,7 +138,6 @@ export default function TabEscaner({ empresa }) {
     } catch(e){ console.log('Supabase talla error', e) }
   }
 
-  // BLINDADO: ESCANEAR CON DOBLE GUARDADO SUPABASE
   const escanearAhora = async () => {
     if(scannerActual.modo==='Devolucion' &&!motivoDevo.trim()) return alert('Motivo obligatorio')
     const key = `${bodegaSel}|${prefijo}|${especSel}`
@@ -154,8 +151,6 @@ export default function TabEscaner({ empresa }) {
       return {...prev, [key]:{...cur, stock:Math.max(0,cur.stock-1), salidas:cur.salidas+1}}
     })
     setConsecutivo(c=>c+1)
-
-    // SUPABASE HISTORIAL QUE NO SE PIERDE
     try {
       const tipoDB = tipo === 'Entrada' ? 'ENTRADA' : tipo === 'Salida' ? 'SALIDA' : 'DEVOLUCION'
       await supabase.from('movimientos_stock').insert({
@@ -188,7 +183,6 @@ export default function TabEscaner({ empresa }) {
     w.document.write(`<html><head><title>Barras ${barcode} x${cantidad}</title><style>body{font-family:monospace; margin:0; padding:10px;} @media print { @page { margin:5mm; } }</style></head><body><div style="display:grid; grid-template-columns:1fr 1fr; gap:2px;">${etiquetas}</div><script>window.onload=()=>{window.print(); setTimeout(()=>window.close(),800)}</script></body></html>`); w.document.close()
   }
 
-  // NUEVO BLINDADO: LOTE MIXTO
   const toggleLoteMixto = (talla) => {
     setLoteMixto(prev => prev.includes(talla) ? prev.filter(t=>t!==talla) : [...prev, talla])
   }
@@ -201,6 +195,37 @@ export default function TabEscaner({ empresa }) {
       etiquetas += `<div style="border:1.5px solid #000; padding:10px 8px; margin:6px; text-align:center; page-break-inside:avoid;"><div style="font-family:monospace; font-weight:900; font-size:13px;">${code}</div><img src="https://barcodeapi.org/api/128/${code}" style="width:90%; height:48px; object-fit:contain; margin:5px 0;" /><div style="font-size:8px; font-weight:bold;">${refActual?.tipo} | ${bodegaSel} | ${prefijo}-${talla}</div></div>`
     })
     w.document.write(`<html><head><title>LOTE MIXTO ${prefijo} x${loteMixto.length}</title><style>body{font-family:monospace; margin:0; padding:10px;} @media print { @page { margin:4mm; } }</style></head><body><h3 style="text-align:center; font-family:sans-serif; font-weight:900;">LOTE MIXTO ${prefijo} - ${loteMixto.length} tallas - ${bodegaSel}</h3><div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px;">${etiquetas}</div><script>window.onload=()=>{window.print(); setTimeout(()=>window.close(),1000)}</script></body></html>`); w.document.close()
+  }
+
+  // BLINDADO ROLLO 20 DIFERENTES - X REFERENCIAS
+  const agregarARollo20 = () => {
+    if(rollo20.length >= 20) return alert('Rollo maximo 20 codigos - ya esta lleno. Imprime y limpia para seguir.')
+    if(rollo20.some(r=>r.codigo===barcode)) return alert('Ese codigo ya esta en el rollo')
+    setRollo20(prev=>[...prev, { codigo: barcode, ref: prefijo, talla: especSel, tipo: refActual?.tipo, bodega: bodegaSel }])
+    setConsecutivo(c=>c+1)
+  }
+  const quitarDeRollo = (codigo) => setRollo20(prev=>prev.filter(r=>r.codigo!==codigo))
+  const limpiarRollo = () => { if(confirm('¿Limpiar rollo 20?')) setRollo20([]) }
+  const agregarLoteMixtoARollo = () => {
+    if(loteMixto.length===0) return alert('Selecciona tallas del lote mixto')
+    let nuevos = []
+    loteMixto.forEach(t=>{
+      if(rollo20.length + nuevos.length >= 20) return
+      const code = `${prefijo}-${t}-${String(consecutivo + nuevos.length).padStart(4,'0')}`
+      if(!rollo20.some(r=>r.codigo===code)){
+        nuevos.push({ codigo: code, ref: prefijo, talla: t, tipo: refActual?.tipo, bodega: bodegaSel })
+      }
+    })
+    if(nuevos.length===0) return alert('Esos codigos ya estan en el rollo')
+    setRollo20(prev=>[...prev, ...nuevos])
+    setConsecutivo(c=>c+nuevos.length)
+    setLoteMixto([])
+  }
+  const imprimirRollo20 = () => {
+    if(rollo20.length===0) return alert('Rollo vacio - agrega codigos con + ROLLO 20')
+    const w = window.open('', '', 'width=600,height=900')
+    let etiquetas = rollo20.map(item=>`<div style="border:1.5px solid #000; padding:12px 8px; margin:5px; text-align:center; page-break-inside:avoid; background:#fff;"><div style="font-family:monospace; font-weight:900; font-size:11px;">${item.codigo}</div><img src="https://barcodeapi.org/api/128/${item.codigo}" style="width:92%; height:52px; object-fit:contain; margin:6px 0;" /><div style="font-size:8px; font-weight:bold;">${item.tipo} | ${item.bodega} | ${item.ref}-${item.talla}</div></div>`).join('')
+    w.document.write(`<html><head><title>ROLLO ${rollo20.length} - X REFERENCIAS DIFERENTES</title><style>body{font-family:monospace; margin:0; padding:8px; background:#f5f5f5;} @media print { @page { margin:3mm; } body{background:#fff;} } .rollo{border:2px dashed #000; padding:6px;}</style></head><body><h3 style="text-align:center; font-family:sans-serif; font-weight:900; margin:0 0 8px 0;">🧾 ROLLO ${rollo20.length} - ${rollo20.length} CODIGOS DIFERENTES - ${bodegaSel}</h3><div style="display:grid; grid-template-columns:1fr 1fr; gap:3px;" class="rollo">${etiquetas}</div><div style="text-align:center; font-size:9px; margin-top:8px; font-family:sans-serif;">${new Date().toLocaleString()} - STOCKOS v7.8 - ${rollo20.map(r=>r.ref+'-'+r.talla).join(', ')}</div><script>window.onload=()=>{window.print();}</script></body></html>`); w.document.close()
   }
 
   const informe = useMemo(()=>{
@@ -216,11 +241,12 @@ export default function TabEscaner({ empresa }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-2">
-        <h2 className="text-xl font-bold">🏭 Escáner - {empresa?.nombre}</h2>
+        <h2 className="text-xl font-bold">🏭 Escáner - {empresa?.nombre} - ROLLO 20 BLINDADO</h2>
         <div className="flex gap-2">
+          <span className="bg-black text-white px-3 py-2 rounded font-black text-xs">ROLLO: {rollo20.length}/20</span>
           <button onClick={exportExcel} className="bg-green-600 text-white px-3 py-2 rounded font-bold text-xs">📊 Excel</button>
           <button onClick={()=>window.print()} className="bg-blue-600 text-white px-3 py-2 rounded font-bold text-xs">📄 PDF</button>
-          <button onClick={resetCero} className="bg-red-600 text-white px-4 py-2 rounded font-black text-xs">🗑 RESET A CERO</button>
+          <button onClick={resetCero} className="bg-red-600 text-white px-4 py-2 rounded font-black text-xs">🗑 RESET</button>
         </div>
       </div>
 
@@ -231,18 +257,18 @@ export default function TabEscaner({ empresa }) {
           <select value={nuevoTipo} onChange={e=>setNuevoTipo(e.target.value)} className="border p-2 rounded text-xs font-bold bg-white min-w-">{Object.keys(TIPOS_MEDIDA).map(t=><option key={t} value={t}>{t}</option>)}</select>
           <button onClick={addReferencia} className="bg-black text-white px-4 rounded text-xs font-black">+ CREAR</button>
         </div>
-        <div className="bg-white p-2 border-2 border-red-200 rounded">
+        <div className="bg-white p-2 border-2 border-red-200 rounded max-h-48 overflow-auto">
           {referencias.map(r=>(
             <div key={r.id} className="mb-3 border-b pb-2 last:border-0">
               <div className="flex justify-between items-center">
                 <span className="font-mono text-xs font-bold">{r.id} [{r.tipo}]</span>
-                <button onClick={()=>eliminarReferencia(r.id)} className="text- bg-red-100 border border-red-300 px-2 py-0.5 rounded">🗑 Ref</button>
+                <button onClick={()=>eliminarReferencia(r.id)} className="text- bg-red-100 border border-red-300 px-2 py-0.5 rounded text-xs">🗑 Ref</button>
               </div>
               <div className="flex flex-wrap gap-2 mt-2">
                 {r.especificaciones.map(t=>(
                   <span key={t} className="flex items-center gap-1 bg-yellow-50 border-2 border-black px-2 py-1 rounded text-xs font-black">
                     {t}
-                    <button onClick={()=>eliminarTalla(r.id, t)} className="bg-red-600 text-white w-5 h-5 rounded-full flex items-center justify-center text- font-black hover:bg-black" title={`Borrar talla ${t}`}>X</button>
+                    <button onClick={()=>eliminarTalla(r.id, t)} className="bg-red-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs font-black hover:bg-black">X</button>
                   </span>
                 ))}
               </div>
@@ -258,8 +284,8 @@ export default function TabEscaner({ empresa }) {
 
       <div className="bg-white p-4 rounded-lg shadow border space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><div className="text- font-black mb-1">PISTOLA (creada en Bodegas y Centros)</div><select value={pistolaSel} onChange={e=>setPistolaSel(e.target.value)} className="w-full border p-2 rounded text-sm font-mono bg-gray-50">{scanners.map(s=><option key={s.id} value={s.id}>{s.id} - {s.nombre} [{s.modo}] - {s.bodega}</option>)}</select></div>
-          <div><div className="text- font-black mb-1">BODEGA REAL (creada en Bodegas y Centros)</div><select value={bodegaSel} onChange={e=>setBodegaSel(e.target.value)} className="w-full border-2 border-black p-2 rounded text-sm font-bold bg-yellow-50">{bodegas.map(b=><option key={b.id} value={b.nombre}>{b.nombre} - {b.ciudad}</option>)}</select></div>
+          <div><div className="text-xs font-black mb-1">PISTOLA (creada en Bodegas y Centros)</div><select value={pistolaSel} onChange={e=>setPistolaSel(e.target.value)} className="w-full border p-2 rounded text-sm font-mono bg-gray-50">{scanners.map(s=><option key={s.id} value={s.id}>{s.id} - {s.nombre} [{s.modo}]</option>)}</select></div>
+          <div><div className="text-xs font-black mb-1">BODEGA REAL (creada en Bodegas y Centros)</div><select value={bodegaSel} onChange={e=>setBodegaSel(e.target.value)} className="w-full border-2 border-black p-2 rounded text-sm font-bold bg-yellow-50">{bodegas.map(b=><option key={b.id} value={b.nombre}>{b.nombre} - {b.ciudad}</option>)}</select></div>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Entrada'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Entrada'?'bg-green-600 text-white':'bg-gray-200'}`}>ENTRADA</button>
@@ -267,28 +293,35 @@ export default function TabEscaner({ empresa }) {
           <button onClick={()=>setScanners(p=>p.map(s=>s.id===pistolaSel?{...s,modo:'Devolucion'}:s))} className={`py-3 rounded font-black text-xs ${scannerActual?.modo==='Devolucion'?'bg-yellow-400':'bg-gray-200'}`}>DEVOLUCIÓN</button>
         </div>
         {scannerActual?.modo==='Devolucion' && <input placeholder="Motivo devolución" value={motivoDevo} onChange={e=>setMotivoDevo(e.target.value)} className="w-full border-2 border-yellow-400 p-2 rounded text-sm"/>}
-        <button onClick={escanearAhora} className="w-full bg-black text-white py-3 rounded font-black text-sm">📡 ESCANEAR {prefijo} {especSel}</button>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button onClick={escanearAhora} className="w-full bg-black text-white py-3 rounded font-black text-sm">📡 ESCANEAR {prefijo} {especSel} - MODO {scannerActual?.modo}</button>
+          <button onClick={agregarARollo20} className="w-full bg-blue-600 text-white py-3 rounded font-black text-sm">+ AGREGAR AL ROLLO 20 ({rollo20.length}/20)</button>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
           <div className="bg-white border-2 border-dashed p-3 rounded text-center space-y-2">
             <div className="font-mono text-lg font-black">{barcode}</div>
             <img src={`https://barcodeapi.org/api/128/${barcode}`} alt="barcode" className="mx-auto h-16 object-contain"/>
-            <div className="text-">{refActual?.tipo || nuevoTipo} | {bodegaSel} | {scannerActual?.modo}</div>
-            <button onClick={imprimirEtiqueta} className="w-full bg-gray-900 text-white py-1.5 rounded text-xs font-bold">🖨 Imprimir Etiqueta</button>
+            <div className="text-xs">{refActual?.tipo || nuevoTipo} | {bodegaSel} | {scannerActual?.modo}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={imprimirEtiqueta} className="bg-gray-900 text-white py-2 rounded text-xs font-bold">🖨 Etiqueta x1</button>
+              <button onClick={()=>imprimirBarras(1)} className="bg-white border-2 border-black py-2 rounded text-xs font-black">BARRAS x1</button>
+            </div>
           </div>
           <div className="border-2 border-black rounded-lg p-2 bg-yellow-50 space-y-2">
-            <div className="text- font-black text-center">🖨 IMPRIMIR CÓDIGO DE BARRAS - {barcode}</div>
+            <div className="text-xs font-black text-center">🖨 IMPRESIÓN RÁPIDA - {barcode}</div>
             <div className="grid grid-cols-3 gap-2">
-              <button onClick={()=>imprimirBarras(1)} className="bg-white border-2 border-black py-2 rounded font-black text-">BARRAS x1</button>
-              <button onClick={()=>imprimirBarras(6)} className="bg-white border-2 border-black py-2 rounded font-black text-">BARRAS x6</button>
-              <button onClick={()=>imprimirBarras(12)} className="bg-black text-white py-2 rounded font-black text-">BARRAS x12</button>
+              <button onClick={()=>imprimirBarras(1)} className="bg-white border-2 border-black py-2 rounded font-black text-xs">x1</button>
+              <button onClick={()=>imprimirBarras(6)} className="bg-white border-2 border-black py-2 rounded font-black text-xs">x6</button>
+              <button onClick={()=>imprimirBarras(12)} className="bg-black text-white py-2 rounded font-black text-xs">x12</button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={()=>imprimirBarras(24)} className="bg-blue-600 text-white py-1.5 rounded font-bold text-">📄 HOJA x24</button>
-              <button onClick={()=>imprimirBarras(50)} className="bg-green-600 text-white py-1.5 rounded font-bold text-">📦 ROLLO x50</button>
+              <button onClick={()=>imprimirBarras(24)} className="bg-blue-600 text-white py-1.5 rounded font-bold text-xs">📄 HOJA x24</button>
+              <button onClick={()=>imprimirBarras(50)} className="bg-green-600 text-white py-1.5 rounded font-bold text-xs">📦 ROLLO x50 MISMA REF</button>
             </div>
-            {/* LOTE MIXTO BLINDADO NUEVO */}
             <div className="border-t-2 border-black pt-2 mt-2 bg-white p-2 rounded">
-              <div className="text-[10px] font-black mb-2">📦 LOTE MIXTO - {prefijo} - Selecciona tallas:</div>
+              <div className="text-[10px] font-black mb-2">📦 LOTE MIXTO - {prefijo} - Misma ref, varias tallas:</div>
               <div className="flex flex-wrap gap-1 mb-2">
                 {(refActual?.especificaciones || []).map(t=>(
                   <label key={t} className={`flex items-center gap-1 border-2 px-2 py-1 rounded text-[10px] font-black cursor-pointer ${loteMixto.includes(t)?'bg-black text-white border-black':'bg-white border-gray-300'}`}>
@@ -297,15 +330,38 @@ export default function TabEscaner({ empresa }) {
                   </label>
                 ))}
               </div>
-              <button onClick={imprimirLoteMixto} className="w-full bg-black text-white py-2 rounded font-black text-xs">🖨 IMPRIMIR LOTE MIXTO x{loteMixto.length || 0} {loteMixto.length>0?`(${loteMixto.join(',')})`:''}</button>
-              <div className="text-[8px] text-gray-500 mt-1 text-center">Ej: seleccionas 28,29,30 = 1 hoja con 3 códigos diferentes</div>
+              <div className="grid grid-cols-2 gap-1">
+                <button onClick={imprimirLoteMixto} className="bg-gray-800 text-white py-2 rounded font-black text-[10px]">IMPRIMIR MIXTO x{loteMixto.length}</button>
+                <button onClick={agregarLoteMixtoARollo} className="bg-blue-600 text-white py-2 rounded font-black text-[10px]">+ MIXTO AL ROLLO 20</button>
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* ROLLO 20 DIFERENTES - X REFERENCIAS */}
+        <div className="border-4 border-black rounded-lg p-3 bg-white">
+          <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
+            <div className="font-black text-sm">🧾 ROLLO {rollo20.length} - {rollo20.length} STICKERS DIFERENTES - UNA SOLA IMPRESIÓN</div>
+            <div className="flex gap-2">
+              <button onClick={limpiarRollo} className="bg-red-100 border border-red-300 px-2 py-1 rounded text-xs">🗑 Limpiar</button>
+              <button onClick={imprimirRollo20} className="bg-black text-white px-4 py-1.5 rounded font-black text-xs">🖨 IMPRIMIR ROLLO {rollo20.length} DIFERENTES</button>
+            </div>
+          </div>
+          {rollo20.length===0 ? <div className="text-xs text-gray-500 text-center py-4 border-2 border-dashed rounded">Rollo vacio - Agrega: MAXIMA NINOS-28, MAXIMA DAMA-35, MAXIMA HOMBRE-40... Cada + ROLLO 20 agrega 1 sticker diferente. Puedes hacer 5, 7, 12, 20 los que sean.</div> :
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-1 max-h-64 overflow-auto border p-2 rounded bg-gray-50">
+            {rollo20.map((item, idx)=>(
+              <div key={item.codigo} className="flex justify-between items-center bg-white border px-2 py-1.5 rounded text-[10px] font-mono">
+                <span className="font-bold">{idx+1}. {item.codigo} [{item.ref}-{item.talla}]</span>
+                <button onClick={()=>quitarDeRollo(item.codigo)} className="bg-red-600 text-white w-5 h-5 rounded-full text-[9px] font-black">X</button>
+              </div>
+            ))}
+          </div>}
+          <div className="text-[9px] text-center mt-2 text-gray-600 font-bold">Si son 5 refs diferentes, imprimes 5. Si son 20, imprimes 20. Todo en una sola pasada de rollo térmico.</div>
         </div>
       </div>
 
       <div className="bg-white rounded-lg shadow border-t-4 border-black overflow-hidden">
-        <div className="p-4"><h3 className="font-black text-sm">📊 CONSOLIDADO TOTAL - SUPABASE + LOCAL (BLINDADO)</h3><div className="grid grid-cols-5 gap-3 mt-3"><div className="bg-black text-white p-3 rounded"><div className="text-">STOCK REAL</div><div className="text-2xl font-black">{informe.totalStock}</div></div><div className="bg-gray-50 p-3 rounded border"><div className="text-">TOTAL MOV</div><div className="text-2xl font-black">{informe.total}</div></div><div className="bg-green-50 p-3 rounded border"><div className="text-">ENTRADAS</div><div className="text-2xl font-black text-green-600">{informe.entradas}</div></div><div className="bg-red-50 p-3 rounded border"><div className="text-">SALIDAS</div><div className="text-2xl font-black text-red-600">{informe.salidas}</div></div><div className="bg-yellow-50 p-3 rounded border"><div className="text-">DEVOLUCIONES</div><div className="text-2xl font-black text-yellow-600">{informe.devoluciones}</div></div></div></div>
+        <div className="p-4"><h3 className="font-black text-sm">📊 CONSOLIDADO TOTAL - SUPABASE + LOCAL</h3><div className="grid grid-cols-5 gap-3 mt-3"><div className="bg-black text-white p-3 rounded"><div className="text-xs">STOCK REAL</div><div className="text-2xl font-black">{informe.totalStock}</div></div><div className="bg-gray-50 p-3 rounded border"><div className="text-xs">TOTAL MOV</div><div className="text-2xl font-black">{informe.total}</div></div><div className="bg-green-50 p-3 rounded border"><div className="text-xs">ENTRADAS</div><div className="text-2xl font-black text-green-600">{informe.entradas}</div></div><div className="bg-red-50 p-3 rounded border"><div className="text-xs">SALIDAS</div><div className="text-2xl font-black text-red-600">{informe.salidas}</div></div><div className="bg-yellow-50 p-3 rounded border"><div className="text-xs">DEVOLUCIONES</div><div className="text-2xl font-black text-yellow-600">{informe.devoluciones}</div></div></div></div>
       </div>
     </div>
   )
