@@ -5,10 +5,12 @@ export default function TabCatalogo({ empresa }) {
   const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
   const [proveedores, setProveedores] = useState([])
   const [nuevoProv, setNuevoProv] = useState({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
-  const [loading, setLoading] = useState(false)
+  const [listado, setListado] = useState([])
+  const [loadingListado, setLoadingListado] = useState(false)
 
   useEffect(() => {
     cargar()
+    cargarListado()
   }, [empresaId])
 
   const cargar = async () => {
@@ -27,6 +29,14 @@ export default function TabCatalogo({ empresa }) {
         })))
       }
     } catch {}
+  }
+
+  const cargarListado = async () => {
+    try {
+      setLoadingListado(true)
+      const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo', { ascending: false }).limit(500)
+      if (data) setListado(data)
+    } catch {} finally { setLoadingListado(false) }
   }
 
   useEffect(() => {
@@ -59,6 +69,7 @@ export default function TabCatalogo({ empresa }) {
 
   const ejecutarEscaneoAhora = () => {
     alert(`🔍 ESCANEO MANUAL - ${empresa?.nombre}\n\nSe escanearán ${proveedores.length} proveedores:\n${proveedores.map(p=>`- ${p.nombre} (${p.web || p.email})`).join('\n')}\n\nEsto generará el listado maestro por proveedor.`)
+    cargarListado()
   }
 
   return (
@@ -118,6 +129,51 @@ export default function TabCatalogo({ empresa }) {
           <p className="text-xs text-gray-400 mt-2">Ejemplo: Proveedor MAXIMA - Web: maxima.com/stock - Email: pedidos@maxima.com (Excel) - WhatsApp: Grupo Difusión MAXIMA</p>
         </div>
       )}
+
+      {/* CUADRO NUEVO - LISTADO MAESTRO POR PROVEEDOR */}
+      <div className="bg-white border-2 border-black rounded-lg w-full overflow-hidden">
+        <div className="bg-black text-white p-3 flex justify-between items-center">
+          <div className="font-black text-sm">LISTADO MAESTRO POR PROVEEDOR - {empresa?.nombre}</div>
+          <button onClick={cargarListado} className="bg-white text-black px-3 py-1 rounded text- font-black">🔄 ACTUALIZAR</button>
+        </div>
+        <div className="p-3">
+          {loadingListado && <p className="text-xs text-gray-500">Cargando listado...</p>}
+          {!loadingListado && listado.length===0 && (
+            <div className="text-center py-6">
+              <p className="text-xs text-gray-500">Aún no hay datos del escaneo.</p>
+              <p className="text- text-gray-400 mt-1">Cuando el bot n8n escanee a las 8:30 AM y 2:30 PM, aquí verás Referencia / Talla / Precio / Stock del proveedor MBR para comparar con Bodega Stock + Pistola.</p>
+            </div>
+          )}
+          {!loadingListado && listado.length>0 && (
+            <div className="overflow-auto w-full">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-100 font-black">
+                  <tr>
+                    <th className="p-2 text-left">Proveedor</th>
+                    <th className="p-2 text-left">Referencia</th>
+                    <th className="p-2 text-left">Talla</th>
+                    <th className="p-2 text-left">Precio</th>
+                    <th className="p-2 text-left">Stock Prov.</th>
+                    <th className="p-2 text-left">Fecha Escaneo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listado.map((item,i)=>(
+                    <tr key={i} className="border-t">
+                      <td className="p-2 font-bold">{item.proveedor_nombre}</td>
+                      <td className="p-2">{item.referencia}</td>
+                      <td className="p-2">{item.talla}</td>
+                      <td className="p-2">${Number(item.precio||0).toLocaleString()}</td>
+                      <td className="p-2">{item.stock_proveedor}</td>
+                      <td className="p-2 text- text-gray-500">{item.fecha_escaneo? new Date(item.fecha_escaneo).toLocaleString() : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
