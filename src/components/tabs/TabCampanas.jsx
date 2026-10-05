@@ -3,8 +3,17 @@ import { supabase } from '../../lib/supabase.js'
 
 export default function TabCampanas({ empresa }) {
   const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
-  const [tab, setTab] = useState('campanas')
-  const [rrss, setRrss] = useState({ facebook_url:'', instagram_url:'', tiktok_url:'', whatsapp_numero:'573177384534', pagina_web:'' })
+  const [tab, setTab] = useState('rrss')
+  const [rrss, setRrss] = useState({
+    facebook_url:'',
+    instagram_url:'',
+    tiktok_url:'',
+    whatsapp_business:'573167520454',
+    whatsapp_api:'',
+    whatsapp_numero:'573167520454',
+    pagina_web:'',
+    whatsapp_tipo:'BUSINESS_APP_ACTIVO'
+  })
   const [grupos, setGrupos] = useState([])
   const [campanas, setCampanas] = useState([])
   const [nuevoGrupo, setNuevoGrupo] = useState({ nombre_grupo:'', tipo:'CONFIRMACION', whatsapp_id:'', link_invitacion:'', admin:'Carlos', incluye_carlos:true })
@@ -14,7 +23,14 @@ export default function TabCampanas({ empresa }) {
   const cargarTodo = async () => {
     try {
       const { data: r } = await supabase.from('empresas_rrss_config').select('*').eq('empresa_id', empresaId).limit(1).maybeSingle()
-      if (r) setRrss(r)
+      if (r) {
+        setRrss({
+         ...r,
+          whatsapp_business: r.whatsapp_business || r.whatsapp || r.whatsapp_numero || '573167520454',
+          whatsapp_api: r.whatsapp_api || '',
+          whatsapp_numero: r.whatsapp_business || r.whatsapp || r.whatsapp_numero || '573167520454'
+        })
+      }
       const { data: g } = await supabase.from('grupos_difusion_config').select('*').eq('empresa_id', empresaId).order('tipo')
       if (g) setGrupos(g)
       const { data: c } = await supabase.from('campanas_config').select('*').eq('empresa_id', empresaId).order('fecha', {ascending:false})
@@ -23,8 +39,21 @@ export default function TabCampanas({ empresa }) {
   }
 
   const guardarRrss = async () => {
-    await supabase.from('empresas_rrss_config').upsert({ empresa_id: empresaId,...rrss, updated_at: new Date().toISOString() }, { onConflict:'empresa_id' })
-    alert('RRSS guardadas por empresa')
+    const payload = {
+      empresa_id: empresaId,
+      facebook_url: rrss.facebook_url,
+      instagram_url: rrss.instagram_url,
+      tiktok_url: rrss.tiktok_url,
+      pagina_web: rrss.pagina_web,
+      whatsapp_business: rrss.whatsapp_business,
+      whatsapp_api: rrss.whatsapp_api || null,
+      whatsapp: rrss.whatsapp_business, // compatibilidad
+      whatsapp_numero: rrss.whatsapp_business, // compatibilidad
+      whatsapp_tipo: rrss.whatsapp_api? 'MIXTO' : 'BUSINESS_APP_ACTIVO',
+      updated_at: new Date().toISOString()
+    }
+    await supabase.from('empresas_rrss_config').upsert(payload, { onConflict:'empresa_id' })
+    alert(`RRSS guardadas\nBUSINESS: ${payload.whatsapp_business}\nAPI: ${payload.whatsapp_api || 'PENDIENTE - cuando lo tengas lo pegas aqui'}`)
   }
 
   const agregarGrupo = async () => {
@@ -42,7 +71,6 @@ export default function TabCampanas({ empresa }) {
     setGrupos(prev=>prev.filter(g=>g.id!==id))
   }
 
-  // SIMPLIFICADO: BOT CAZA/CONFIRMACION ES LO MISMO, DIFUSION/COMUNIDAD ES LO MISMO
   const gruposConfirmacion = grupos.filter(g=>g.tipo==='CONFIRMACION' || g.tipo==='BOT_CAZA')
   const gruposDifusion = grupos.filter(g=>g.tipo==='DIFUSION' || g.tipo==='COMUNIDAD')
 
@@ -51,7 +79,7 @@ export default function TabCampanas({ empresa }) {
       <div className="flex justify-between items-center flex-wrap gap-2">
         <div>
           <h2 className="text-xl font-black uppercase">CAMPAÑAS IA + BOT CAZA</h2>
-          <p className="text-sm text-gray-500">{empresa?.nombre} - WhatsApp Carlos {rrss.whatsapp_numero}</p>
+          <p className="text-sm text-gray-500">{empresa?.nombre} - Business: {rrss.whatsapp_business} {rrss.whatsapp_api? `| API: ${rrss.whatsapp_api}` : '| API: PENDIENTE'}</p>
         </div>
         <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-black">POR EMPRESA</span>
       </div>
@@ -84,15 +112,31 @@ export default function TabCampanas({ empresa }) {
       )}
 
       {tab==='rrss' && (
-        <div className="bg-white border-2 border-black rounded-lg p-4 space-y-3">
+        <div className="bg-white border-2 border-black rounded-lg p-4 space-y-4">
           <div className="font-black text-sm">CONFIGURACION RRSS POR EMPRESA - {empresa?.nombre}</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <input value={rrss.facebook_url} onChange={e=>setRrss({...rrss, facebook_url:e.target.value})} placeholder="Facebook URL" className="border p-2 rounded text-xs"/>
             <input value={rrss.instagram_url} onChange={e=>setRrss({...rrss, instagram_url:e.target.value})} placeholder="Instagram URL" className="border p-2 rounded text-xs"/>
             <input value={rrss.tiktok_url} onChange={e=>setRrss({...rrss, tiktok_url:e.target.value})} placeholder="TikTok URL" className="border p-2 rounded text-xs"/>
             <input value={rrss.pagina_web} onChange={e=>setRrss({...rrss, pagina_web:e.target.value})} placeholder="Pagina web" className="border p-2 rounded text-xs"/>
-            <input value={rrss.whatsapp_numero} onChange={e=>setRrss({...rrss, whatsapp_numero:e.target.value})} placeholder="WhatsApp Carlos" className="border p-2 rounded text-xs font-bold col-span-2"/>
           </div>
+
+          <div className="bg-gray-50 border-2 border-dashed border-green-600 rounded p-3 space-y-3">
+            <div className="font-black text-xs text-green-700">WHATSAPP SEPARADO - ASI DEBE SER</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text- font-black text-gray-600">WHATSAPP BUSINESS APP - COMUNIDAD (el que usas hoy para atacar base)</label>
+                <input value={rrss.whatsapp_business} onChange={e=>setRrss({...rrss, whatsapp_business:e.target.value, whatsapp_numero:e.target.value})} placeholder="573167520454" className="border-2 border-green-600 p-2 rounded text-xs font-bold w-full bg-white"/>
+                <div className="text- text-green-600">Activo para invitar a comunidad Máxima</div>
+              </div>
+              <div>
+                <label className="text- font-black text-gray-600">WHATSAPP API - BOT CAZA / CONFIRMACION (vacío hasta que lo tengas)</label>
+                <input value={rrss.whatsapp_api} onChange={e=>setRrss({...rrss, whatsapp_api:e.target.value})} placeholder="Pegalo aqui cuando lo tengas" className="border-2 border-purple-600 p-2 rounded text-xs font-bold w-full bg-white"/>
+                <div className="text- text-purple-600">{rrss.whatsapp_api? '🟢 API configurado' : '🟡 Pendiente - cuando lo tengas lo pegas aqui sin borrar el Business'}</div>
+              </div>
+            </div>
+          </div>
+
           <button onClick={guardarRrss} className="bg-black text-white px-6 py-2 rounded font-black text-xs">GUARDAR RRSS POR EMPRESA</button>
         </div>
       )}
