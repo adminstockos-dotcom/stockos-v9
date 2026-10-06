@@ -1,95 +1,81 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '../../lib/supabase.js'
+import { useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import Sidebar from '../components/Sidebar.jsx'
+import Header from '../components/Header.jsx'
+import TabDefinicion from '../components/tabs/TabDefinicion.jsx'
+import TabPersonas from '../components/tabs/TabPersonas.jsx'
+import TabEscaner from '../components/tabs/TabEscaner.jsx'
+import TabCatalogo from '../components/tabs/TabCatalogo.jsx'
+import TabCampanas from '../components/tabs/TabCampanas.jsx'
+import TabDisparo from '../components/tabs/TabDisparo.jsx'
+import TabDespachos from '../components/tabs/TabDespachos.jsx'
+import TabBodega from '../components/tabs/TabBodega.jsx'
+import { useEmpresas } from '../hooks/useEmpresas.js'
 
-export default function TabDespachos({ empresa }){
-  const [pedidos, setPedidos] = useState([])
-  const [loading, setLoading] = useState(true)
+const TABS = [
+  { id: 0, label: 'Configuración Empresa', icon: '🏗' },
+  { id: 1, label: 'Personas y Roles', icon: '👥' },
+  { id: 2, label: 'Bodegas y Centros', icon: '🏭' },
+  { id: 3, label: 'Bodega Stock + Pistola', icon: '📡' },
+  { id: 4, label: 'CATALOGO PUBLICO', icon: '📦' },
+  { id: 5, label: 'Campañas IA + BOT CAZA', icon: '🤖' },
+  { id: 6, label: 'Disparo + Link', icon: '🔗' },
+  { id: 7, label: 'Despachos + CRM + Pagos', icon: '🚚' },
+]
 
-  useEffect(()=>{
-    const cargar = async () => {
-      setLoading(true)
-      const { data } = await supabase.from('pedidos')
-       .select('*')
-       .eq('empresa_id', empresa.id)
-       .order('created_at', { ascending: false })
-       .limit(100)
-      setPedidos(data||[])
-      setLoading(false)
-    }
-    cargar()
-  },[empresa.id])
+export default function EmpresaPanel({ user, onLogout }) {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const { getEmpresa, loading } = useEmpresas()
+  const [activeTab, setActiveTab] = useState(0)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const empresa = getEmpresa(id)
 
-  const imprimirGuia = (pedido) => {
-    const win = window.open('', '_blank')
-    win.document.write(`
-      <html><head><title>GUIA ${pedido.numero_guia}</title>
-      <style>
-        @media print { button{display:none} }
-        body{font-family:Arial; margin:0; padding:20px}
-      </style></head><body>
-      <div style="width:380px; border:2px solid black; padding:20px">
-        <h2 style="margin:0; font-size:18px">GUÍA DE ENVÍO - ${pedido.numero_guia}</h2>
-        <p style="font-size:11px; margin:4px 0">${new Date(pedido.created_at).toLocaleString()} - ${empresa.nombre}</p>
-        <hr/>
-        <p style="font-size:12px"><b>REMITENTE:</b><br/>
-          ${empresa.nombre}<br/>
-          3008901150
-        </p>
-        <p style="font-size:12px"><b>DESTINATARIO:</b><br/>
-          ${pedido.cliente_nombre} - ${pedido.cliente_telefono}<br/>
-          ${pedido.cliente_ciudad} - ${pedido.cliente_barrio||''}<br/>
-          ${pedido.cliente_direccion}<br/>
-          CC: ${pedido.cliente_cedula||''}
-        </p>
-        <hr/>
-        <p style="font-size:11px"><b>CONTENIDO:</b><br/>
-          ${pedido.items.map(i=>`${i.referencia} Talla:${i.talla} x${i.cantidad}`).join('<br/>')}
-          <br/><br/>
-          <b>${pedido.total_pares} PARES - ${pedido.metodo_pago}</b>
-        </p>
-        <p style="text-align:center; margin-top:20px; font-size:11px; font-weight:bold">*** Pegar esta guía en el paquete - SIN PRECIOS ***</p>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-gray-500">Cargando empresa...</p>
+        </div>
       </div>
-      </body></html>
-    `)
-    win.document.close()
-    win.print()
+    )
   }
 
-  if(loading) return <div className="p-4 text-xs">Cargando pedidos...</div>
-
-  return(
-    <div className="space-y-4">
-      <div className="bg-white rounded-xl border p-4">
-        <h2 className="font-black text-sm">DESPACHOS + CRM + PAGOS - {empresa.nombre}</h2>
-        <p className="text- text-gray-500">{pedidos.length} pedidos - WhatsApp confirmación: 3008901150 - Guía sin precios</p>
+  if (!empresa) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Empresa no encontrada</h2>
+          <p className="text-gray-500 mb-4">La empresa que buscas no existe o fue eliminada.</p>
+          <button onClick={() => navigate('/superadmin')} className="btn-primary px-4 py-2 bg-black text-white rounded">
+            Volver al Super Admin
+          </button>
+        </div>
       </div>
+    )
+  }
 
-      <div className="bg-white rounded-xl border overflow-hidden">
-        <table className="w-full text-">
-          <thead className="bg-gray-50 text-gray-500">
-            <tr>
-              <th className="text-left p-3">GUÍA / FECHA</th>
-              <th className="text-left p-3">CLIENTE / ENVÍO</th>
-              <th className="text-left p-3">PRODUCTOS</th>
-              <th className="text-left p-3">ESTADO</th>
-              <th className="text-left p-3">ACCIÓN</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pedidos.map(p=>(
-              <tr key={p.id} className="border-t hover:bg-gray-50">
-                <td className="p-3"><div className="font-black">{p.numero_guia}</div><div className="text- text-gray-500">{new Date(p.created_at).toLocaleString()}</div><div className="text-">{p.metodo_pago} {p.anticipo_metodo?`+ ${p.anticipo_metodo}`:''}</div></td>
-                <td className="p-3"><div className="font-black">{p.cliente_nombre}</div><div>{p.cliente_telefono}</div><div>{p.cliente_ciudad} - {p.cliente_direccion}</div></td>
-                <td className="p-3"><div>{p.items.map(i=>`${i.referencia} x${i.cantidad}`).join(', ')}</div><div className="font-black">{p.total_pares} pares</div></td>
-                <td className="p-3"><span className="bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full text- font-black">{p.estado}</span></td>
-                <td className="p-3">
-                  <button onClick={()=>imprimirGuia(p)} className="bg-black text-white px-3 py-2 rounded font-black text-">🖨️ IMPRIMIR GUÍA</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {pedidos.length===0 && <div className="p-8 text-center text-xs text-gray-500">No hay pedidos aún. Cuando un cliente finalice en el catálogo y se confirme por WhatsApp 3008901150 aparecerán aquí.</div>}
+  const renderTab = () => {
+    switch (activeTab) {
+      case 0: return <TabDefinicion empresa={empresa} />
+      case 1: return <TabPersonas empresa={empresa} />
+      case 2: return <TabBodega empresa={empresa} />
+      case 3: return <TabEscaner empresa={empresa} />
+      case 4: return <TabCatalogo empresa={empresa} />
+      case 5: return <TabCampanas empresa={empresa} />
+      case 6: return <TabDisparo empresa={empresa} />
+      case 7: return <TabDespachos empresa={empresa} />
+      default: return <TabDefinicion empresa={empresa} />
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      <Sidebar tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header user={user} onLogout={onLogout} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} empresa={empresa} />
+        <main className="flex-1 p-6 overflow-auto">{renderTab()}</main>
       </div>
     </div>
   )
