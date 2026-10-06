@@ -35,7 +35,7 @@ export default function CatalogoPublico(){
     setMetodoPago(metodo)
     let numero = ''
     if(metodo==='NEQUI') numero = '3186411851'
-    if(metodo==='BANCOLOMBIA') numero = '9127560414'
+    if(metodo==='【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】') numero = '9127560414'
     if(metodo==='BRE-B') numero = '83615157565'
     if(numero){
       navigator.clipboard.writeText(numero)
@@ -45,7 +45,6 @@ export default function CatalogoPublico(){
   }
 
   const finalizarPedido = async () => {
-    // tu logica existente de crear pedido en supabase
     const totalPares = carrito.reduce((a,b)=>a+b.cantidad,0)
     const { data, error } = await supabase.from('pedidos').insert([{
       empresa_id: empresa.id,
@@ -81,7 +80,6 @@ export default function CatalogoPublico(){
           <p className="text- opacity-70">Catálogo oficial</p>
         </div>
 
-        {/* AQUI VA TU LISTADO DE PRODUCTOS / CARRITO - PASO 1 y 2 */}
         {paso===1 && (
           <div className="p-4 space-y-2">
             {productos.map(p=>(
@@ -100,9 +98,9 @@ export default function CatalogoPublico(){
               <input type="radio" checked={metodoPago==='NEQUI'} readOnly/>
             </div>
 
-            <div onClick={()=>seleccionarPago('BANCOLOMBIA')} className={`border-2 p-3 rounded-lg flex justify-between items-center cursor-pointer ${metodoPago==='BANCOLOMBIA'?'border-black bg-gray-50':''}`}>
-              <span className="text-sm font-bold flex items-center gap-2">🏦 Bancolombia {metodoPago==='BANCOLOMBIA'?'✅ Copiado':''}</span>
-              <input type="radio" checked={metodoPago==='BANCOLOMBIA'} readOnly/>
+            <div onClick={()=>seleccionarPago('【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】')} className={`border-2 p-3 rounded-lg flex justify-between items-center cursor-pointer ${metodoPago==='BANCOLOMBIA'?'border-black bg-gray-50':''}`}>
+              <span className="text-sm font-bold flex items-center gap-2">🏦 【entity-Bancolombia¦canonical_name=BANCOLOMBIA】 {metodoPago==='【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】'?'✅ Copiado':''}</span>
+              <input type="radio" checked={metodoPago==='【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】'} readOnly/>
             </div>
 
             <div onClick={()=>seleccionarPago('BRE-B')} className={`border-2 p-3 rounded-lg flex justify-between items-center cursor-pointer ${metodoPago==='BRE-B'?'border-black bg-gray-50':''}`}>
