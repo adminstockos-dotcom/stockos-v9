@@ -3,17 +3,20 @@ import { supabase } from '../../lib/supabase.js'
 
 export default function TabCatalogo({ empresa }) {
   const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
-  const empresaNombre = empresa?.nombre || 'MAXIMA'
-  const slug = empresaNombre.toLowerCase().split(' ')[0] // maxima
+  const empresaNombre = empresa?.nombre || 'MAXIMA IMPORTADORES'
+  // maxima = primer nombre limpio sin tilde
+  const slug = empresaNombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(' ')[0] || 'maxima'
+
   const [proveedores, setProveedores] = useState([])
   const [nuevoProv, setNuevoProv] = useState({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
   const [listado, setListado] = useState([])
   const [loadingListado, setLoadingListado] = useState(false)
   const [abiertos, setAbiertos] = useState({})
 
-  // LINK CORTO QUE QUERIAS: primero MAXIMA luego stockos acortado
+  // LINKS COMO LOS QUIERES
   const urlCatalogoLargo = `https://stockos-v9.vercel.app/empresa/${empresaId}/catalogo`
-  const urlCatalogoCorto = `https://stockos-v9.vercel.app/m/${slug}`
+  const urlCatalogoCorto = `https://${slug}.stockos.vercel.app`
+  const urlCatalogoFallback = `https://stockos-v9.vercel.app/m/${slug}`
 
   useEffect(() => { cargar(); cargarListado() }, [empresaId])
 
@@ -32,7 +35,6 @@ export default function TabCatalogo({ empresa }) {
     if(!confirm('¿Disparar escaneo manual ahora? (n8n lo hace auto 8:30 AM y 2:30 PM)')) return
     try{
       setLoadingListado(true)
-      // Llama tu webhook n8n si lo tienes
       await fetch(`https://n8n.tu-dominio.com/webhook/stockos/escanear/${empresaId}`, { method:'POST' }).catch(()=>{})
       alert('Escaneo disparado. En 1-2 min se llena el listado.')
       setTimeout(cargarListado, 3000)
@@ -94,14 +96,14 @@ export default function TabCatalogo({ empresa }) {
           <div className="font-black text-sm">CATÁLOGO VIRTUAL EN VIVO - {listado.length} REFS TOTAL</div>
           <div className="flex gap-2">
             <button onClick={()=>copiar(urlCatalogoCorto)} className="bg-white text-green-700 px-3 py-1 rounded text-xs font-black">📋 COPIAR LINK CORTO</button>
-            <button onClick={()=>window.open(urlCatalogoCorto,'_blank')} className="bg-black text-white px-3 py-1 rounded text-xs font-black">👁 VER CATÁLOGO</button>
+            <button onClick={()=>window.open(urlCatalogoFallback,'_blank')} className="bg-black text-white px-3 py-1 rounded text-xs font-black">👁 VER CATÁLOGO</button>
           </div>
         </div>
         <div className="p-3">
           <div className="bg-gray-50 border rounded p-2 mb-3">
-            <div className="text-xs font-black text-gray-600">LINK PÚBLICO PARA COMPARTIR - MAXIMA PRIMERO (acortado)</div>
-            <div className="text-sm font-black text-blue-600 break-all select-all">{urlCatalogoCorto}</div>
-            <div className="text- text-gray-400 mt-1">Link largo: {urlCatalogoLargo}</div>
+            <div className="text-xs font-black text-gray-600">LINK PÚBLICO PARA COMPARTIR - MAXIMA PRIMERO</div>
+            <div className="text-base font-black text-blue-600 break-all select-all">{urlCatalogoCorto}</div>
+            <div className="text-xs text-green-700 font-bold mt-1">Link funcional hoy: {urlCatalogoFallback}</div>
           </div>
           {listado.length===0? <p className="text-xs text-gray-500 text-center py-3">Catálogo vacío hasta que caigan los escaneos. Usa ⚡ ESCANEAR AHORA.</p>:<div className="grid grid-cols-2 md:grid-cols-4 gap-2">{listado.slice(0,12).map((it,i)=>(<div key={i} className="border rounded p-2"><div className="bg-gray-100 h-16 rounded mb-1 flex items-center justify-center text-">IMG</div><div className="text-xs font-black truncate">{it.referencia}</div><div className="text-">{it.proveedor_nombre} - T:{it.talla}</div><div className="text-xs font-bold">${Number(it.precio||0).toLocaleString()}</div></div>))}</div>}
         </div>
