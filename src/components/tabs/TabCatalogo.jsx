@@ -3,13 +3,17 @@ import { supabase } from '../../lib/supabase.js'
 
 export default function TabCatalogo({ empresa }) {
   const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
+  const empresaNombre = empresa?.nombre || 'MAXIMA'
+  const slug = empresaNombre.toLowerCase().split(' ')[0] // maxima
   const [proveedores, setProveedores] = useState([])
   const [nuevoProv, setNuevoProv] = useState({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
   const [listado, setListado] = useState([])
   const [loadingListado, setLoadingListado] = useState(false)
   const [abiertos, setAbiertos] = useState({})
 
-  const urlCatalogo = `https://stockos-v9.vercel.app/empresa/${empresaId}/catalogo`
+  // LINK CORTO QUE QUERIAS: primero MAXIMA luego stockos acortado
+  const urlCatalogoLargo = `https://stockos-v9.vercel.app/empresa/${empresaId}/catalogo`
+  const urlCatalogoCorto = `https://stockos-v9.vercel.app/m/${slug}`
 
   useEffect(() => { cargar(); cargarListado() }, [empresaId])
 
@@ -24,6 +28,17 @@ export default function TabCatalogo({ empresa }) {
   const cargarListado = async () => {
     try { setLoadingListado(true); const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo',{ascending:false}).limit(1000); if(data) setListado(data) } catch{} finally{ setLoadingListado(false) }
   }
+  const escanearAhora = async () => {
+    if(!confirm('¿Disparar escaneo manual ahora? (n8n lo hace auto 8:30 AM y 2:30 PM)')) return
+    try{
+      setLoadingListado(true)
+      // Llama tu webhook n8n si lo tienes
+      await fetch(`https://n8n.tu-dominio.com/webhook/stockos/escanear/${empresaId}`, { method:'POST' }).catch(()=>{})
+      alert('Escaneo disparado. En 1-2 min se llena el listado.')
+      setTimeout(cargarListado, 3000)
+    }catch{ alert('Escaneo solicitado') } finally{ setLoadingListado(false) }
+  }
+
   useEffect(()=>{ localStorage.setItem(`stockos_proveedores_links_${empresaId}`, JSON.stringify(proveedores)) },[proveedores, empresaId])
 
   const agregarProveedor = async () => {
@@ -34,13 +49,17 @@ export default function TabCatalogo({ empresa }) {
   }
   const eliminar = async (nombre) => { if(!confirm(`¿Borrar ${nombre}?`))return; setProveedores(prev=>prev.filter(p=>p.nombre!==nombre)); try{ await supabase.from('proveedores_config').delete().eq('empresa_id',empresaId).eq('nombre_proveedor',nombre)}catch{} }
   const toggle = (nombre) => setAbiertos(prev=>({...prev,[nombre]:!prev[nombre]}))
-  const copiar = (txt) => { navigator.clipboard.writeText(txt); alert('Link copiado') }
+  const copiar = (txt) => { navigator.clipboard.writeText(txt); alert('Copiado: '+txt) }
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-2">
-        <div><h2 className="text-xl font-black uppercase">ENLACES PROVEEDORES - NOTIFICACIONES</h2><p className="text-sm text-gray-500">{empresa?.nombre} - {proveedores.length} proveedores - Escaneo 8:30 AM y 2:30 PM</p></div>
-        <div className="flex gap-2"><span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-black">POR EMPRESA</span><button onClick={cargarListado} className="bg-black text-white px-4 py-2 rounded font-black text-xs">🔄 ACTUALIZAR TODO</button></div>
+        <div><h2 className="text-xl font-black uppercase">ENLACES PROVEEDORES - NOTIFICACIONES</h2><p className="text-sm text-gray-500">{empresaNombre} - {proveedores.length} proveedores - Auto 8:30 AM y 2:30 PM {loadingListado&&'(cargando...)'}</p></div>
+        <div className="flex gap-2">
+          <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-black">POR EMPRESA</span>
+          <button onClick={escanearAhora} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded font-black text-xs">⚡ ESCANEAR AHORA</button>
+          <button onClick={cargarListado} className="bg-black text-white px-4 py-2 rounded font-black text-xs">🔄 ACTUALIZAR TODO</button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow border">
@@ -64,7 +83,7 @@ export default function TabCatalogo({ empresa }) {
                 <div className="flex items-center gap-2"><span className="font-black text-sm uppercase">{p.nombre}</span><span className="text- bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black">ACTIVO</span><span className="text- bg-black text-white px-2 py-0.5 rounded-full">{itemsProv.length} refs</span></div>
                 <div className="flex items-center gap-2"><span className="text-xl font-black">{abierto?'−':'+'}</span><button onClick={(e)=>{e.stopPropagation();eliminar(p.nombre)}} className="bg-red-600 text-white w-6 h-6 rounded-full text-xs font-black">X</button></div>
               </div>
-              {abierto && <div className="border-t bg-gray-50 p-3"><div className="bg-white border rounded overflow-hidden"><div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black">LISTADO MAESTRO - {p.nombre}</span><span className="text-xs">{itemsProv.length} productos</span></div>{itemsProv.length===0? <div className="p-4 text-center text-xs text-gray-500">Aún no hay datos escaneados. Cuando el bot n8n escanee 8:30 AM y 2:30 PM, aquí verás Ref / Talla / Precio / Stock.</div>:<div className="overflow-auto max-h-"><table className="w-full text-xs"><thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2 text-left">Ref</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio</th><th className="p-2 text-left">Stock</th></tr></thead><tbody>{itemsProv.map((it,i)=><tr key={i} className="border-t"><td className="p-2 font-bold">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2">${Number(it.precio||0).toLocaleString()}</td><td className="p-2">{it.stock_proveedor}</td></tr>)}</tbody></table></div>}</div></div>}
+              {abierto && <div className="border-t bg-gray-50 p-3"><div className="bg-white border rounded overflow-hidden"><div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black">LISTADO MAESTRO - {p.nombre}</span><span className="text-xs">{itemsProv.length} productos</span></div>{itemsProv.length===0? <div className="p-4 text-center text-xs text-gray-500">Aún no hay datos. Click en ⚡ ESCANEAR AHORA o espera 8:30 AM / 2:30 PM.</div>:<div className="overflow-auto max-h-"><table className="w-full text-xs"><thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2 text-left">Ref</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio</th><th className="p-2 text-left">Stock</th></tr></thead><tbody>{itemsProv.map((it,i)=><tr key={i} className="border-t"><td className="p-2 font-bold">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2">${Number(it.precio||0).toLocaleString()}</td><td className="p-2">{it.stock_proveedor}</td></tr>)}</tbody></table></div>}</div></div>}
             </div>
           )
         })}
@@ -73,9 +92,19 @@ export default function TabCatalogo({ empresa }) {
       <div className="bg-white border-2 border-green-600 rounded-lg overflow-hidden">
         <div className="bg-green-600 text-white p-3 flex justify-between items-center flex-wrap gap-2">
           <div className="font-black text-sm">CATÁLOGO VIRTUAL EN VIVO - {listado.length} REFS TOTAL</div>
-          <div className="flex gap-2"><button onClick={()=>copiar(urlCatalogo)} className="bg-white text-green-700 px-3 py-1 rounded text-xs font-black">📋 COPIAR LINK</button><button onClick={()=>window.open(urlCatalogo,'_blank')} className="bg-black text-white px-3 py-1 rounded text-xs font-black">👁 VER CATÁLOGO</button></div>
+          <div className="flex gap-2">
+            <button onClick={()=>copiar(urlCatalogoCorto)} className="bg-white text-green-700 px-3 py-1 rounded text-xs font-black">📋 COPIAR LINK CORTO</button>
+            <button onClick={()=>window.open(urlCatalogoCorto,'_blank')} className="bg-black text-white px-3 py-1 rounded text-xs font-black">👁 VER CATÁLOGO</button>
+          </div>
         </div>
-        <div className="p-3"><div className="bg-gray-50 border rounded p-2 mb-3"><div className="text-xs font-black text-gray-600">LINK PÚBLICO PARA COMPARTIR</div><div className="text-xs text-blue-600 break-all select-all">{urlCatalogo}</div></div>{listado.length===0? <p className="text-xs text-gray-500 text-center py-3">Catálogo vacío hasta que caigan los escaneos.</p>:<div className="grid grid-cols-2 md:grid-cols-4 gap-2">{listado.slice(0,12).map((it,i)=>(<div key={i} className="border rounded p-2"><div className="bg-gray-100 h-16 rounded mb-1 flex items-center justify-center text-">IMG</div><div className="text-xs font-black truncate">{it.referencia}</div><div className="text-">{it.proveedor_nombre} - T:{it.talla}</div><div className="text-xs font-bold">${Number(it.precio||0).toLocaleString()}</div></div>))}</div>}</div>
+        <div className="p-3">
+          <div className="bg-gray-50 border rounded p-2 mb-3">
+            <div className="text-xs font-black text-gray-600">LINK PÚBLICO PARA COMPARTIR - MAXIMA PRIMERO (acortado)</div>
+            <div className="text-sm font-black text-blue-600 break-all select-all">{urlCatalogoCorto}</div>
+            <div className="text- text-gray-400 mt-1">Link largo: {urlCatalogoLargo}</div>
+          </div>
+          {listado.length===0? <p className="text-xs text-gray-500 text-center py-3">Catálogo vacío hasta que caigan los escaneos. Usa ⚡ ESCANEAR AHORA.</p>:<div className="grid grid-cols-2 md:grid-cols-4 gap-2">{listado.slice(0,12).map((it,i)=>(<div key={i} className="border rounded p-2"><div className="bg-gray-100 h-16 rounded mb-1 flex items-center justify-center text-">IMG</div><div className="text-xs font-black truncate">{it.referencia}</div><div className="text-">{it.proveedor_nombre} - T:{it.talla}</div><div className="text-xs font-bold">${Number(it.precio||0).toLocaleString()}</div></div>))}</div>}
+        </div>
       </div>
     </div>
   )
