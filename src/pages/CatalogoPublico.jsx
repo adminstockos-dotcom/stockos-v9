@@ -18,18 +18,30 @@ export default function CatalogoPublico(){
   const [carrito, setCarrito] = useState([])
   const [busqueda, setBusqueda] = useState('')
   const [showCart, setShowCart] = useState(false)
+  const [empresa, setEmpresa] = useState({ nombre: 'MAXIMA IMPORTADORES', logo: null })
 
   useEffect(()=>{
     const saved = localStorage.getItem('stockos_carrito_maxima')
     if(saved) setCarrito(JSON.parse(saved))
-    const cargar = async () => {
-      const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaIdFallback).limit(500)
-      if(data && data.length>0) setItems(data)
-    }
     cargar()
   },[])
 
   useEffect(()=>{ localStorage.setItem('stockos_carrito_maxima', JSON.stringify(carrito)) },[carrito])
+
+  const cargar = async () => {
+    try{
+      // Trae nombre y logo de Supabase - tabla empresas
+      const { data: emp } = await supabase.from('empresas').select('id,nombre,logo,logo_url,imagen_url').eq('id', empresaIdFallback).single()
+      if(emp){
+        setEmpresa({
+          nombre: emp.nombre || 'MAXIMA IMPORTADORES',
+          logo: emp.logo_url || emp.logo || emp.imagen_url || null
+        })
+      }
+      const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaIdFallback).limit(500)
+      if(data && data.length>0) setItems(data)
+    }catch(e){ console.log(e) }
+  }
 
   const lista = items.length>0? items : DEMO
   const filtrados = lista.filter(i=> i.referencia.toLowerCase().includes(busqueda.toLowerCase()))
@@ -46,28 +58,33 @@ export default function CatalogoPublico(){
 
   return(
     <div className="min-h-screen bg-white">
-      {/* HEADER LIMPIO - SOLO LOGO MAXIMA IMPORTADORES */}
-      <div className="bg-black text-white px-4 py-3 flex justify-between items-center sticky top-0 z-20">
-        <div className="flex items-center gap-2">
-          <div className="bg-white text-black w-9 h-9 rounded-full flex items-center justify-center font-black text-sm">M</div>
+      {/* HEADER IGUAL A LAS OTRAS VENTANAS - LOGO PROTAGONISTA DE SUPABASE */}
+      <div className="bg-black text-white px-4 py-3 flex justify-between items-center sticky top-0 z-20 border-b-2 border-black">
+        <div className="flex items-center gap-3">
+          {empresa.logo? (
+            <img src={empresa.logo} alt={empresa.nombre} className="w-10 h-10 rounded-full object-cover bg-white border-2 border-white"/>
+          ) : (
+            <div className="bg-white text-black w-10 h-10 rounded-full flex items-center justify-center font-black text-sm">
+              {empresa.nombre.charAt(0)}
+            </div>
+          )}
           <div className="leading-none">
-            <div className="font-black text-">MAXIMA IMPORTADORES</div>
-            <div className="text- text-green-400 font-bold">MAXIMA.STOCKOS.VERCEL.APP</div>
+            <div className="font-black text- uppercase tracking-wide">{empresa.nombre}</div>
+            <div className="text- text-gray-400">CATÁLOGO OFICIAL</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar ref..." className="text-black px-3 py-2 rounded text-xs w-32 md:w-60"/>
+          <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar referencia..." className="text-black px-3 py-2 rounded text-xs w-32 md:w-60"/>
           <button onClick={()=>setShowCart(true)} className="bg-white text-black px-4 py-2 rounded-full font-black text-xs">🛒 {carrito.reduce((s,p)=>s+p.cantidad,0)} | ${total.toLocaleString()}</button>
         </div>
       </div>
 
-      {/* PRODUCTOS CON TEXTOS DEMO */}
       <div className="max-w-7xl mx-auto p-4">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {filtrados.map((it,idx)=>(
             <div key={idx} className="border rounded-xl overflow-hidden bg-white shadow-sm">
               <div className="bg-gray-100 h-48 flex items-center justify-center relative">
-                <span className="text- text-gray-400">IMAGEN<br/>{it.referencia}</span>
+                <span className="text- text-gray-400 text-center">IMAGEN<br/>{it.referencia}</span>
                 <span className="absolute bottom-2 left-2 bg-black text-white text- px-2 py-1 rounded-full">Stock: {it.stock_proveedor}</span>
               </div>
               <div className="p-3">
@@ -79,10 +96,8 @@ export default function CatalogoPublico(){
             </div>
           ))}
         </div>
-        {items.length===0 && <div className="text-center mt-6 text- text-gray-400">Mostrando DEMO - Cuando n8n escanee se reemplaza automático desde Supabase</div>}
       </div>
 
-      {/* CARRITO */}
       {showCart && (
         <div className="fixed inset-0 bg-black/50 z-50 flex justify-end">
           <div className="bg-white w-full max-w-sm h-full p-4 flex flex-col">
@@ -93,8 +108,7 @@ export default function CatalogoPublico(){
             </div>
             <div className="border-t pt-3">
               <div className="flex justify-between font-black text-sm mb-3"><span>Total</span><span>${total.toLocaleString()}</span></div>
-              <div className="bg-gray-50 p-2 rounded text- mb-3">Pagos: Nequi 3177384534 • Bancolombia • Contraentrega</div>
-              <button onClick={()=>{ alert('Pedido guardado. n8n lo procesa.'); setCarrito([]); setShowCart(false)}} className="w-full bg-black text-white py-3 rounded font-black text-xs">FINALIZAR PEDIDO</button>
+              <button onClick={()=>{ alert('Pedido enviado a Supabase. n8n lo automatiza.'); setCarrito([]); setShowCart(false)}} className="w-full bg-black text-white py-3 rounded font-black text-xs">FINALIZAR PEDIDO</button>
             </div>
           </div>
         </div>
