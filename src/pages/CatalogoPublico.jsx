@@ -2,192 +2,101 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 
-const WHATSAPP_CONFIRMACION = '3008901150'
-
 export default function CatalogoPublico(){
   const { slug } = useParams()
-  const [empresa, setEmpresa] = useState(null)
-  const [productos, setProductos] = useState([])
-  const [carrito, setCarrito] = useState([])
-  const [paso, setPaso] = useState(1)
-  const [metodoPago, setMetodoPago] = useState(null)
-  const [cliente, setCliente] = useState({ nombre:'', telefono:'', ciudad:'', direccion:'', barrio:'', cedula:'' })
-  const [toast, setToast] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  const totalPares = carrito.reduce((a,b)=>a+b.cantidad,0)
-  const esContraentregaValida = totalPares <= 2 && totalPares > 0
+  const [empresa,setEmpresa]=useState(null)
+  const [productos,setProductos]=useState([])
+  const [filtro,setFiltro]=useState('')
+  const [carrito,setCarrito]=useState([])
+  const [loading,setLoading]=useState(true)
 
   useEffect(()=>{
-    const cargar = async ()=>{
-      setLoading(true)
-      const s = (slug || 'maxima').toLowerCase().trim()
-      let { data: emp } = await supabase.from('empresas').select('*').ilike('slug', s).maybeSingle()
-      if(!emp){
-        const { data } = await supabase.from('empresas').select('*').ilike('slug', `%${s}%`).limit(1).maybeSingle()
-        emp = data
-      }
+    const load=async()=>{
+      const s=(slug||'maxima').toLowerCase().trim()
+      let {data:emp}=await supabase.from('empresas').select('*').ilike('slug',s).maybeSingle()
+      if(!emp){ const {data}=await supabase.from('empresas').select('*').ilike('slug',`%${s}%`).limit(1).maybeSingle(); emp=data }
       if(emp){
         setEmpresa(emp)
-        const { data: prods } = await supabase.from('productos').select('*').eq('empresa_id', emp.id).eq('activo', true).order('referencia')
+        const {data:prods}=await supabase.from('productos').select('*').eq('empresa_id',emp.id).eq('activo',true).order('referencia')
         setProductos(prods||[])
       }
       setLoading(false)
     }
-    cargar()
+    load()
   },[slug])
 
-  const addCarrito = (prod, talla='UNICA') => {
-    setCarrito(prev=>{
-      const ex = prev.find(p=>p.id===prod.id && p.talla===talla)
-      if(ex) return prev.map(p=> p.id===prod.id && p.talla===talla? {...p, cantidad:p.cantidad+1} : p)
-      return [...prev, { id: prod.id, referencia: prod.referencia, talla, cantidad:1, precio: prod.precio, imagen_url: prod.imagen_url || prod.imagen }]
-    })
-    setToast(`Agregado: ${prod.referencia}`)
-    setTimeout(()=>setToast(null),1500)
-  }
+  const add=(p)=>setCarrito(prev=>{
+    const ex=prev.find(x=>x.id===p.id)
+    return ex? prev.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x) : [...prev,{...p,qty:1}]
+  })
+  const menos=(id)=>setCarrito(prev=>prev.flatMap(x=>x.id===id? (x.qty>1? [{...x,qty:x.qty-1}]:[]) : [x]))
+  const mas=(id)=>add(productos.find(p=>p.id===id)||carrito.find(c=>c.id===id))
 
-  const quitarCarrito = (id, talla) => {
-    setCarrito(prev=> prev.filter(p=>!(p.id===id && p.talla===talla)))
-  }
+  const filtrados=productos.length? productos.filter(p=>p.referencia.toLowerCase().includes(filtro.toLowerCase())) : [
+    {id:'1',referencia:'MAX-101 NEGRO',precio:48500,talla:'35-40'},{id:'2',referencia:'MAX-102 BEIGE',precio:48500,talla:'35-40'},
+    {id:'3',referencia:'MAX-103 BLANCO',precio:52000,talla:'35-40'},{id:'4',referencia:'MAX-104 CAFÉ',precio:48500,talla:'35-40'},
+    {id:'5',referencia:'MAX-105 NEGRO CHAROL',precio:55000,talla:'35-40'},{id:'6',referencia:'MAX-106',precio:48500,talla:'35-40'},
+    {id:'7',referencia:'MAX-201',precio:48500,talla:'35-40'},{id:'8',referencia:'MAX-202',precio:52000,talla:'35-40'},
+  ]
 
-  const seleccionarPago = (metodo) => {
-    setMetodoPago(metodo)
-    const nums = { NEQUI:'3186411851', BANCOLOMBIA:'9127560414', 'BRE-B':'83615157565' }
-    if(nums[metodo]){
-      navigator.clipboard.writeText(nums[metodo])
-      setToast(`Copiado: ${nums[metodo]}`)
-      setTimeout(()=>setToast(null),2000)
-    }
-  }
+  const total=carrito.reduce((a,b)=>a+b.qty,0)
+  const totalPrecio=carrito.reduce((a,b)=>a+(b.precio||0)*b.qty,0)
 
-  const finalizarPedido = async () => {
-    if(!cliente.nombre ||!cliente.telefono) { setToast('Falta nombre y teléfono'); return }
-    if(!metodoPago) { setToast('Selecciona método de pago'); return }
-    const { data, error } = await supabase.from('pedidos').insert([{
-      empresa_id: empresa.id,
-      cliente_nombre: cliente.nombre,
-      cliente_telefono: cliente.telefono,
-      cliente_ciudad: cliente.ciudad,
-      cliente_direccion: cliente.direccion,
-      cliente_barrio: cliente.barrio,
-      cliente_cedula: cliente.cedula,
-      items: carrito,
-      total_pares: totalPares,
-      metodo_pago: metodoPago,
-      estado: 'PENDIENTE',
-      numero_guia: `GUIA-${Date.now()}`
-    }]).select().single()
-
-    if(!error){
-      const msg = `Hola ${empresa.nombre} - Pedido ${data.numero_guia} - ${totalPares} pares - ${metodoPago} - Cliente ${cliente.nombre} ${cliente.ciudad}`
-      window.open(`https://wa.me/57${WHATSAPP_CONFIRMACION}?text=${encodeURIComponent(msg)}`,'_blank')
-    }
-  }
-
-  if(loading) return <div className="p-8 text-center text-xs">Cargando catálogo...</div>
-  if(!empresa) return <div className="p-8 text-center font-black">Empresa no encontrada</div>
+  if(loading) return <div className="p-8 text-center text-xs">Cargando...</div>
 
   return(
-    <div className="min-h-screen bg-gray-50 p-3">
-      {toast && <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full text-xs z-50 shadow-xl">{toast}</div>}
-
-      <div className="max-w-6xl mx-auto">
-        <div className="bg-black text-white p-4 rounded-t-xl text-center">
-          <h1 className="font-black text-lg">{empresa.nombre}</h1>
-          <p className="text- opacity-60">Catálogo oficial - {empresa.slug}</p>
+    <div className="min-h-screen bg-[#f8f9fa]">
+      <div className="h-14 bg-[#0E2A4D] flex items-center justify-between px-4">
+        <div className="flex items-center gap-2">
+          {empresa?.logo_url? <img src={empresa.logo_url} className="h-7 w-7 bg-white rounded-full p-1 object-contain"/> : <div className="h-7 w-7 bg-white text-black rounded-full flex items-center justify-center font-black text-xs">S</div>}
+          <span className="text-white font-black text-xs tracking-widest">STOCKOS</span>
         </div>
-
-        <div className="bg-white rounded-b-xl border p-4">
-          {/* PASO 1 - PRODUCTOS */}
-          {paso===1 && (
-            <>
-              {productos.length===0? (
-                <div className="py-16 text-center text-xs text-gray-500">
-                  Catálogo vacío - Ve al panel y dale <b>ESCANEAR AHORA</b> para cargar stock de {empresa.nombre}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {productos.map(p=>(
-                    <div key={p.id} className="border rounded-lg overflow-hidden flex flex-col">
-                      <div className="aspect-square bg-gray-100">
-                        {p.imagen_url || p.imagen? <img src={p.imagen_url || p.imagen} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text- text-gray-400">SIN FOTO</div>}
-                      </div>
-                      <div className="p-2 flex-1">
-                        <div className="font-black text-xs">{p.referencia}</div>
-                        <div className="text- text-gray-500">Stock: {p.stock} | ${p.precio?.toLocaleString()}</div>
-                      </div>
-                      <button onClick={()=>addCarrito(p)} className="bg-black text-white text- font-black py-2">AGREGAR</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {carrito.length>0 && (
-                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-md bg-[#0f2d52] text-white rounded-full p-2 flex justify-between items-center shadow-2xl">
-                  <span className="text-xs font-black px-4">{totalPares} pares - {carrito.length} refs</span>
-                  <button onClick={()=>setPaso(2)} className="bg-white text-black px-6 py-2 rounded-full font-black text-xs">VER CARRITO</button>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* PASO 2 - DATOS CLIENTE */}
-          {paso===2 && (
-            <div className="max-w-md mx-auto space-y-3">
-              <h2 className="font-black text-sm">Datos de envío</h2>
-              {carrito.map((c,i)=>(
-                <div key={i} className="flex justify-between text-xs border p-2 rounded">
-                  <span>{c.referencia} x{c.cantidad}</span>
-                  <button onClick={()=>quitarCarrito(c.id,c.talla)} className="text-red-600 font-black">X</button>
-                </div>
-              ))}
-              <input placeholder="Nombre" value={cliente.nombre} onChange={e=>setCliente({...cliente,nombre:e.target.value})} className="w-full border p-3 rounded text-xs"/>
-              <input placeholder="WhatsApp" value={cliente.telefono} onChange={e=>setCliente({...cliente,telefono:e.target.value})} className="w-full border p-3 rounded text-xs"/>
-              <input placeholder="Ciudad" value={cliente.ciudad} onChange={e=>setCliente({...cliente,ciudad:e.target.value})} className="w-full border p-3 rounded text-xs"/>
-              <input placeholder="Dirección" value={cliente.direccion} onChange={e=>setCliente({...cliente,direccion:e.target.value})} className="w-full border p-3 rounded text-xs"/>
-              <div className="flex gap-2">
-                <button onClick={()=>setPaso(1)} className="flex-1 border py-3 rounded font-black text-xs">VOLVER</button>
-                <button onClick={()=>setPaso(3)} className="flex-1 bg-black text-white py-3 rounded font-black text-xs">IR A PAGAR</button>
-              </div>
-            </div>
-          )}
-
-          {/* PASO 3 - PAGOS */}
-          {paso===3 && (
-            <div className="max-w-md mx-auto space-y-3">
-              <h2 className="font-black text-sm">Selecciona método de pago</h2>
-
-              <div onClick={()=>seleccionarPago('NEQUI')} className={`border-2 p-3 rounded-lg flex justify-between items-center cursor-pointer ${metodoPago==='NEQUI'?'border-black bg-gray-50':''}`}>
-                <span className="text-sm font-bold flex items-center gap-2">💜 Nequi {metodoPago==='NEQUI'?'✅ Copiado':''}</span>
-                <span className="text-xs">3186411851</span>
-              </div>
-
-              <div onClick={()=>seleccionarPago('BANCOLOMBIA')} className={`border-2 p-3 rounded-lg flex justify-between items-center cursor-pointer ${metodoPago==='BANCOLOMBIA'?'border-black bg-gray-50':''}`}>
-                <span className="text-sm font-bold flex items-center gap-2">🏦 Bancolombia {metodoPago==='BANCOLOMBIA'?'✅ Copiado':''}</span>
-                <span className="text-xs">9127560414</span>
-              </div>
-
-              <div onClick={()=>seleccionarPago('BRE-B')} className={`border-2 p-3 rounded-lg flex justify-between items-center cursor-pointer ${metodoPago==='BRE-B'?'border-black bg-gray-50':''}`}>
-                <span className="text-sm font-bold flex items-center gap-2">⚡ Llave Bre-B - 83615157565 {metodoPago==='BRE-B'?'✅ Copiado':''}</span>
-                <span className="text-xs">83615157565</span>
-              </div>
-
-              <label className={`border-2 p-3 rounded-lg block cursor-pointer ${metodoPago==='CONTRAENTREGA'?'border-green-600 bg-green-50':''} ${!esContraentregaValida?'opacity-50':''}`}>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="font-bold text-sm">Contraentrega</div>
-                    <div className="text-xs text-gray-600">Hasta 2 pares máx 1ra vez + anticipo</div>
-                  </div>
-                  <input type="radio" disabled={!esContraentregaValida} checked={metodoPago==='CONTRAENTREGA'} onChange={()=>setMetodoPago('CONTRAENTREGA')}/>
-                </div>
-              </label>
-
-              <button onClick={finalizarPedido} className="w-full bg-[#0f2d52] text-white py-4 rounded-lg font-black text-xs mt-2">FINALIZAR - ENVIAR A {WHATSAPP_CONFIRMACION}</button>
-              <button onClick={()=>setPaso(2)} className="w-full text-xs text-gray-500">← Volver</button>
-            </div>
-          )}
+        <div className="flex items-center gap-2 text-white">
+          <div className="text-right"><div className="font-black text-">MÁXIMA IMPORTADORES</div><div className="text- opacity-60">/ CATALOGO OFICIAL</div></div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="bg-[#2A3F5F] rounded-full flex items-center px-3 py-1.5"><input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="Buscar ref..." className="bg-transparent text-xs text-white placeholder-gray-400 outline-none w-28"/><span className="text-gray-400 text-xs">🔍</span></div>
+          <div className="bg-white rounded-full px-3 py-1.5 text- font-black">CARRITO {total}</div>
         </div>
       </div>
+
+      <div className="bg-[#e9ecef] flex justify-between px-4 py-2 text- text-gray-600 font-bold">
+        <span>20 REFERENCIAS • TALLA 35-40 • ENTREGA BOGOTA 24H</span>
+        <span className="opacity-50">STOCKOS / MÁXIMA • CATALOGO FINAL CON LOGOS OFICIALES</span>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4">
+        {filtrados.map(p=>{
+          const enCarrito=carrito.find(c=>c.id===p.id)
+          return(
+            <div key={p.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden relative">
+              <div className="absolute top-2 left-2 bg-black text-white text- font-black px-2 py-0.5 rounded-full z-10">{p.referencia.split(' ')[0]}</div>
+              <div className="h-44 bg-[#f2f2f2] flex items-center justify-center relative">
+                <span className="border border-dashed border-gray-300 px-3 py-1 text- text-gray-400 bg-white">IMAGEN</span>
+                {p.imagen_url && <img src={p.imagen_url} className="absolute inset-0 w-full h-full object-cover"/>}
+                <div className="absolute bottom-2 right-2 bg-white border text- px-2 py-0.5 rounded-full">{p.talla||'35-40'}</div>
+              </div>
+              <div className="p-3">
+                <div className="font-black text- uppercase">{p.referencia}</div>
+                <div className="text- text-gray-500">TALLA {p.talla||'35-40'} • STOCKOS</div>
+                <div className="font-black text- mt-1">${p.precio.toLocaleString()}</div>
+                {enCarrito? (
+                  <div className="flex items-center justify-between mt-2 bg-black text-white rounded-full px-2 py-1"><button onClick={()=>menos(p.id)} className="w-6 h-6 bg-white text-black rounded-full font-black">-</button><span className="text-xs font-black">{enCarrito.qty}</span><button onClick={()=>mas(p.id)} className="w-6 h-6 bg-white text-black rounded-full font-black">+</button></div>
+                ):(
+                  <button onClick={()=>add(p)} className="w-full mt-2 bg-black text-white text- font-black py-2 rounded-full">AÑADIR AL CARRITO</button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {total>0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-[#0f2d52] text-white rounded-full px-4 py-2 text-xs font-black flex gap-3 items-center shadow-xl">
+          <span>{total} pares | ${totalPrecio.toLocaleString()}</span>
+          <a href={`https://wa.me/573008901150?text=Pedido ${empresa?.nombre} ${total} pares`} target="_blank" className="bg-white text-black px-4 py-1 rounded-full">ENVIAR 3008901150</a>
+        </div>
+      )}
     </div>
   )
 }
