@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/Login.jsx'
 import SuperAdmin from './pages/SuperAdmin.jsx'
 import EmpresaPanel from './pages/EmpresaPanel.jsx'
+import CatalogoPublico from './pages/CatalogoPublico.jsx'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -38,6 +39,11 @@ export default function App() {
             <Navigate to="/" replace />
           )
         }
+      />
+      {/* CATALOGO PUBLICO EN VIVO - SIN LOGIN - NO INTERFIERE */}
+      <Route
+        path="/empresa/:id/catalogo"
+        element={<CatalogoPublico />}
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
