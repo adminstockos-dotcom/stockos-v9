@@ -10,8 +10,8 @@ export default function CatalogoPublico(){
   const [carrito,setCarrito]=useState([])
   const [loading,setLoading]=useState(true)
   const [showCarrito,setShowCarrito]=useState(false)
-  const [pago,setPago]=useState('NEQUI')
-  const [subPago,setSubPago]=useState('NEQUI')
+  const [pago,setPago]=useState('【entity-NEQUI¦canonical_name=NEQUI】')
+  const [subPago,setSubPago]=useState('【entity-NEQUI¦canonical_name=NEQUI】')
 
   useEffect(()=>{
     const load=async()=>{
@@ -109,11 +109,11 @@ export default function CatalogoPublico(){
               <h3 className="font-black text-xs mb-2">MÉTODO DE PAGO</h3>
               <div className="space-y-2 text-xs">
                 <label className="flex justify-between items-center border p-2 rounded cursor-pointer hover:bg-gray-50">
-                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='NEQUI'} onChange={()=>setPago('NEQUI')}/><span className="bg-[#FF0A54] text-white font-black px-2 py-0.5 rounded text-">NEQUI</span></span>
+                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='【entity-NEQUI¦canonical_name=NEQUI】'} onChange={()=>setPago('【entity-NEQUI¦canonical_name=NEQUI】')}/><span className="bg-[#FF0A54] text-white font-black px-2 py-0.5 rounded text-">【entity-NEQUI¦canonical_name=NEQUI】</span></span>
                   <button type="button" onClick={(e)=>copy(e,'3186411851')} className="bg-black text-white px-3 py-1 rounded text-">COPIAR</button>
                 </label>
                 <label className="flex justify-between items-center border p-2 rounded cursor-pointer hover:bg-gray-50">
-                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='BANCOLOMBIA'} onChange={()=>setPago('BANCOLOMBIA')}/><span className="bg-[#F8C200] text-black font-black px-2 py-0.5 rounded text-">BANCOLOMBIA</span></span>
+                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】'} onChange={()=>setPago('【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】')}/><span className="bg-[#F8C200] text-black font-black px-2 py-0.5 rounded text-">【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】</span></span>
                   <button type="button" onClick={(e)=>copy(e,'9127560414')} className="bg-black text-white px-3 py-1 rounded text-">COPIAR</button>
                 </label>
                 <label className="flex justify-between items-center border p-2 rounded cursor-pointer hover:bg-gray-50">
@@ -128,8 +128,7 @@ export default function CatalogoPublico(){
                       <div className="text- font-black">¿CÓMO PAGAS AL RECIBIR?</div>
                       <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='NEQUI'} onChange={()=>setSubPago('NEQUI')}/><span className="bg-[#FF0A54] text-white px-1.5 py-0.5 rounded text- font-black">NEQUI</span> <span className="text-">Nequi contraentrega</span></label>
                       <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='BANCOLOMBIA'} onChange={()=>setSubPago('BANCOLOMBIA')}/><span className="bg-[#F8C200] text-black px-1.5 py-0.5 rounded text- font-black">BANCOLOMBIA</span> <span className="text-">Bancolombia contraentrega</span></label>
-                      <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='BRE-B'} onChange={()=>setSubPago('BRE-B')}/><span className="bg-black text-white px-1.5 py-0.5 rounded text- font-black">BRE-B</span> <span className="text-">Llave breve contraentrega</span></label>
-                      <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='EFECTIVO'} onChange={()=>setSubPago('EFECTIVO')}/><span className="bg-gray-700 text-white px-1.5 py-0.5 rounded text- font-black">EFECTIVO</span> <span className="text-">Efectivo</span></label>
+                      <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='BRE-B'} onChange={()=>setSubPago('BRE-B')}/><span className="bg-black text-white px-1.5 py-0.5 rounded text- font-black">BRE-B</span> <span className="text-">Llave Bre-B contraentrega</span></label>
                     </div>
                   )}
                 </label>
