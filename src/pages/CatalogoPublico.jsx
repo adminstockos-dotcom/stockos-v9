@@ -107,33 +107,34 @@ export default function CatalogoPublico(){
             <div className="mt-4">
               <h3 className="font-black text-xs mb-2">MÉTODO DE PAGO</h3>
               <div className="space-y-2 text-xs">
-                <label className="flex justify-between items-center border p-2 rounded cursor-pointer">
-                  <span className="flex gap-2"><input type="radio" name="pago" checked={pago==='【entity-NEQUI¦canonical_name=NEQUI】'} onChange={()=>setPago('【entity-NEQUI¦canonical_name=NEQUI】')}/> 【entity-NEQUI¦canonical_name=NEQUI】 3186411851</span>
+                <label className="flex justify-between items-center border p-2 rounded cursor-pointer hover:bg-gray-50">
+                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='【entity-NEQUI¦canonical_name=NEQUI】'} onChange={()=>setPago('【entity-NEQUI¦canonical_name=NEQUI】')}/><span className="bg-[#FF0A54] text-white font-black px-1.5 py-0.5 rounded text-">【entity-NEQUI¦canonical_name=NEQUI】</span> 3186411851</span>
                   <button type="button" onClick={(e)=>copy(e,'3186411851')} className="bg-black text-white px-2 py-1 rounded text-">COPIAR</button>
                 </label>
-                <label className="flex justify-between items-center border p-2 rounded cursor-pointer">
-                  <span className="flex gap-2"><input type="radio" name="pago" checked={pago==='【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】'} onChange={()=>setPago('【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】')}/> 【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】 9127560414</span>
+                <label className="flex justify-between items-center border p-2 rounded cursor-pointer hover:bg-gray-50">
+                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】'} onChange={()=>setPago('【entity-BANCOLOMBIA¦canonical_name=BANCOLOMBIA】')}/><span className="bg-[#F8C200] text-black font-black px-1.5 py-0.5 rounded text-">BANCOLOMBIA</span> 9127560414</span>
                   <button type="button" onClick={(e)=>copy(e,'9127560414')} className="bg-black text-white px-2 py-1 rounded text-">COPIAR</button>
                 </label>
-                <label className="flex justify-between items-center border p-2 rounded cursor-pointer">
-                  <span className="flex gap-2"><input type="radio" name="pago" checked={pago==='BRE-B'} onChange={()=>setPago('BRE-B')}/> LLAVE BRE-B 83615157565</span>
+                <label className="flex justify-between items-center border p-2 rounded cursor-pointer hover:bg-gray-50">
+                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='BRE-B'} onChange={()=>setPago('BRE-B')}/> <span className="bg-black text-white font-black px-1.5 py-0.5 rounded text-">BRE-B</span> 83615157565</span>
                   <button type="button" onClick={(e)=>copy(e,'83615157565')} className="bg-black text-white px-2 py-1 rounded text-">COPIAR</button>
                 </label>
-                <label className={`flex flex-col border p-2 rounded cursor-pointer ${total>2?'opacity-40':''}`}>
-                  <span className="flex gap-2"><input type="radio" name="pago" checked={pago==='CONTRAENTREGA'} disabled={total>2} onChange={()=>setPago('CONTRAENTREGA')}/> CONTRAENTREGA</span>
-                  {pago==='CONTRAENTREGA' && <div className="mt-2 bg-yellow-50 border border-yellow-200 p-2 rounded text-"><b>Solo primer pedido, max 2 pares, solo Bogotá.</b> Pagas al recibir en efectivo, Nequi o Bancolombia.</div>}
+                <label className={`flex flex-col border p-2 rounded cursor-pointer hover:bg-gray-50 ${total>2?'opacity-50':''}`}>
+                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='CONTRAENTREGA'} disabled={total>2} onChange={()=>setPago('CONTRAENTREGA')}/> <span className="bg-green-600 text-white font-black px-1.5 py-0.5 rounded text-">CONTRAENTREGA</span> Bogotá</span>
+                  {pago==='CONTRAENTREGA' && <div className="mt-2 bg-green-50 border border-green-200 p-2 rounded text-"><b>Automático por API Nequi.</b> Solo primer pedido, max 2 pares, solo Bogotá. Pagas al recibir con Nequi. El API lo aprueba solo.</div>}
                 </label>
               </div>
             </div>
 
             <button onClick={async()=>{
-              const nombre=document.getElementById('cli_nombre').value
-              const tel=document.getElementById('cli_tel').value
-              const ciudad=document.getElementById('cli_ciudad').value
-              const dir=document.getElementById('cli_dir').value
-              if(!nombre||!tel||!ciudad||!dir){alert('Completa datos');return}
-              if(pago==='CONTRAENTREGA' && total>2){alert('Contraentrega max 2 pares');return}
+              const nombre=document.getElementById('cli_nombre').value.trim()
+              const tel=document.getElementById('cli_tel').value.trim()
+              const ciudad=document.getElementById('cli_ciudad').value.trim()
+              const dir=document.getElementById('cli_dir').value.trim()
+              if(!nombre||!tel||!ciudad||!dir){alert('Completa datos de envío');return}
+              if(pago==='CONTRAENTREGA' && total>2){alert('Contraentrega max 2 pares primer pedido');return}
               if(!empresa?.id){alert('Empresa no cargada');return}
+              const esAutomatico = pago==='NEQUI' || pago==='CONTRAENTREGA'
               const {error}=await supabase.from('pedidos').insert({
                 empresa_id: empresa.id,
                 cliente: {nombre, telefono:tel, ciudad, direccion:dir},
@@ -141,14 +142,15 @@ export default function CatalogoPublico(){
                 total_pares: total,
                 total_precio: totalPrecio,
                 metodo_pago: pago,
-                estado: pago==='NEQUI'?'PENDIENTE_NEQUI':'PENDIENTE',
+                estado: esAutomatico? 'PENDIENTE_NEQUI' : 'PENDIENTE',
                 numero_guia: 'GUIA-'+Date.now().toString().slice(-6)
               })
               if(error){alert('Error: '+error.message);return}
-              window.open(`https://wa.me/573008901150?text=${encodeURIComponent(`Hola MAXIMA soy ${nombre} ${ciudad} pedido ${total} pares $${totalPrecio} pago ${pago}`)}`,'_blank')
-              alert('Pedido creado')
+              window.open(`https://wa.me/573008901150?text=${encodeURIComponent(`Hola MAXIMA soy ${nombre} ${ciudad} pedido ${total} pares $${totalPrecio} pago ${pago} dir ${dir}`)}`,'_blank')
+              alert(esAutomatico? 'Pedido creado. API Nequi lo aprobará automático y pasa a Despachos' : 'Pedido creado. Carlos lo aprobará manual en App MÁXIMA')
               setCarrito([]); setShowCarrito(false)
             }} className="w-full bg-[#0E2A4D] text-white py-3 rounded-full font-black mt-4 text-xs">ENVIAR PEDIDO</button>
+            <p className="text- text-gray-400 mt-2 text-center">NEQUI y CONTRAENTREGA = Automático API | BANCOLOMBIA y BRE-B = Manual Carlos en App MÁXIMA</p>
           </div>
         </div>
       )}
