@@ -10,6 +10,7 @@ export default function App() {
 
   return (
     <Routes>
+      {/* LOGIN */}
       <Route
         path="/"
         element={
@@ -20,6 +21,8 @@ export default function App() {
           )
         }
       />
+
+      {/* SUPER ADMIN */}
       <Route
         path="/superadmin"
         element={
@@ -30,6 +33,8 @@ export default function App() {
           )
         }
       />
+
+      {/* PANEL PRIVADO POR EMPRESA */}
       <Route
         path="/empresa/:id/panel"
         element={
@@ -40,11 +45,18 @@ export default function App() {
           )
         }
       />
-      {/* CATALOGO PUBLICO EN VIVO - SIN LOGIN - NO INTERFIERE */}
-      <Route
-        path="/empresa/:id/catalogo"
-        element={<CatalogoPublico />}
-      />
+
+      {/* CATALOGO PUBLICO EN VIVO - SIN LOGIN - FIX 404 DEFINITIVO */}
+      {/* Link largo original */}
+      <Route path="/empresa/:id/catalogo" element={<CatalogoPublico />} />
+      
+      {/* Links cortos que quieres: primero MAXIMA luego stockos acortado */}
+      <Route path="/m/:slug" element={<CatalogoPublico />} />
+      <Route path="/c/:slug" element={<CatalogoPublico />} />
+      <Route path="/maxima" element={<CatalogoPublico />} />
+      <Route path="/maxima/catalogo" element={<CatalogoPublico />} />
+
+      {/* FALLBACK */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
