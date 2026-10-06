@@ -121,10 +121,10 @@ export default function CatalogoPublico(){
                   <button type="button" onClick={(e)=>copy(e,'83615157565')} className="bg-black text-white px-3 py-1 rounded text-">COPIAR</button>
                 </label>
                 <label className={`flex flex-col border-2 p-2 rounded cursor-pointer ${pago==='CONTRAENTREGA'?'border-green-600 bg-green-50':'border-gray-200'} ${total>2?'opacity-50':''}`}>
-                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='CONTRAENTREGA'} disabled={total>2} onChange={()=>setPago('CONTRAENTREGA')}/><span className="bg-green-600 text-white font-black px-2 py-0.5 rounded text-">CONTRAENTREGA</span><span className="text- text-gray-500">Bogotá</span></span>
+                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='CONTRAENTREGA'} disabled={total>2} onChange={()=>setPago('CONTRAENTREGA')}/><span className="bg-green-600 text-white font-black px-2 py-0.5 rounded text-">CONTRAENTREGA</span><span className="text- font-bold">Hasta 2 pares solo primera compra. Pago anticipado envio.</span></span>
                   {pago==='CONTRAENTREGA' && (
                     <div className="mt-2 space-y-2">
-                      <div className="bg-white border border-green-200 p-2 rounded text-">Automático por API Nequi. Solo primer pedido, max 2 pares, solo Bogotá.</div>
+                      <div className="bg-white border border-green-200 p-2 rounded text-">Automático por API Nequi. Solo primer pedido, max 2 pares. Pago anticipado de envío.</div>
                       <div className="text- font-black">¿CÓMO PAGAS AL RECIBIR?</div>
                       <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='NEQUI'} onChange={()=>setSubPago('NEQUI')}/><span className="bg-[#FF0A54] text-white px-1.5 py-0.5 rounded text- font-black">NEQUI</span> <span className="text-">Nequi contraentrega</span></label>
                       <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='BANCOLOMBIA'} onChange={()=>setSubPago('BANCOLOMBIA')}/><span className="bg-[#F8C200] text-black px-1.5 py-0.5 rounded text- font-black">BANCOLOMBIA</span> <span className="text-">Bancolombia contraentrega</span></label>
@@ -141,7 +141,7 @@ export default function CatalogoPublico(){
               const ciudad=document.getElementById('cli_ciudad').value.trim()
               const dir=document.getElementById('cli_dir').value.trim()
               if(!nombre||!tel||!ciudad||!dir){alert('Completa datos de envío');return}
-              if(pago==='CONTRAENTREGA' && total>2){alert('Contraentrega max 2 pares primer pedido');return}
+              if(pago==='CONTRAENTREGA' && total>2){alert('Contraentrega max 2 pares primera compra');return}
               if(!empresa?.id){alert('Empresa no cargada');return}
               const metodoFinal = pago==='CONTRAENTREGA'? `CONTRAENTREGA_${subPago}` : pago
               const esAutomatico = pago==='NEQUI' || pago==='CONTRAENTREGA'
