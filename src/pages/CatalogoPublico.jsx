@@ -20,8 +20,9 @@ export default function CatalogoPublico(){
   const [showCart, setShowCart] = useState(false)
   const [empresa, setEmpresa] = useState({ nombre: 'MAXIMA IMPORTADORES', logo: null })
   const [paso, setPaso] = useState(1)
-  const [datosEnvio, setDatosEnvio] = useState({ nombre:'', telefono:'', cedula:'', ciudad:'', direccion:'', barrio:'', notas:'', esPrimeraVez: true })
-  const [metodoPago, setMetodoPago] = useState('NEQUI')
+  const [datosEnvio, setDatosEnvio] = useState({ nombre:'', telefono:'', cedula:'', ciudad:'', direccion:'', barrio:'', notas:'' })
+  const [metodoPago, setMetodoPago] = useState('【entity-NEQUI¦canonical_name=Nequi】')
+  const [historialCliente, setHistorialCliente] = useState({ totalPedidos: 0, esPrimeraVez: true, verificando: false })
 
   useEffect(()=>{
     const saved = localStorage.getItem('stockos_carrito_maxima')
@@ -37,11 +38,36 @@ export default function CatalogoPublico(){
 
   useEffect(()=>{ localStorage.setItem('stockos_carrito_maxima', JSON.stringify(carrito)) },[carrito])
 
+  // VERIFICA EN SUPABASE SI ES SEGUNDA COMPRA
+  const verificarCliente = async () => {
+    if(!datosEnvio.telefono &&!datosEnvio.cedula) return
+    setHistorialCliente(prev=>({...prev, verificando: true}))
+    try{
+      let query = supabase.from('pedidos').select('id').eq('empresa_id', empresaIdFallback)
+      if(datosEnvio.telefono) query = query.eq('cliente_telefono', datosEnvio.telefono)
+      // si también hay cédula, verifica ambos
+      const { data, count } = await query.limit(10)
+      const totalPedidos = data?.length || 0
+      setHistorialCliente({ totalPedidos, esPrimeraVez: totalPedidos===0, verificando: false })
+      if(totalPedidos>0 && metodoPago==='CONTRAENTREGA'){
+        setMetodoPago('【entity-NEQUI¦canonical_name=Nequi】')
+      }
+    }catch{
+      setHistorialCliente({ totalPedidos: 0, esPrimeraVez: true, verificando: false })
+    }
+  }
+
+  useEffect(()=>{
+    if(datosEnvio.telefono.length>=10 || datosEnvio.cedula.length>=5){
+      verificarCliente()
+    }
+  },[datosEnvio.telefono, datosEnvio.cedula])
+
   const lista = items.length>0? items : DEMO
   const filtrados = lista.filter(i=> i.referencia.toLowerCase().includes(busqueda.toLowerCase()))
   const total = carrito.reduce((s,p)=>s + Number(p.precio||0)*p.cantidad, 0)
   const totalPares = carrito.reduce((s,p)=>s + p.cantidad, 0)
-  const esContraentregaValida = datosEnvio.esPrimeraVez && totalPares>0 && totalPares<=2
+  const esContraentregaValida = historialCliente.esPrimeraVez && totalPares>=1 && totalPares<=2
 
   const addCarrito = (prod) => {
     setCarrito(prev=>{
@@ -54,16 +80,36 @@ export default function CatalogoPublico(){
 
   const finalizarPedido = async () => {
     if(!datosEnvio.nombre ||!datosEnvio.telefono ||!datosEnvio.ciudad ||!datosEnvio.direccion) return alert('Completa datos de envío para la guía')
-    if(metodoPago==='CONTRAENTREGA' &&!esContraentregaValida) return alert('Contraentrega solo 1ra vez y hasta 2 pares máximo.')
+    if(metodoPago==='CONTRAENTREGA' &&!esContraentregaValida){
+      if(!historialCliente.esPrimeraVez) return alert(`Esta es tu compra #${historialCliente.totalPedidos+1}. Contraentrega solo para 1ra compra.`)
+      if(totalPares>2) return alert('Contraentrega solo hasta 2 pares máximo.')
+    }
 
-    const pedido = { empresa_id: empresaIdFallback, cliente_nombre: datosEnvio.nombre, cliente_telefono: datosEnvio.telefono, cliente_cedula: datosEnvio.cedula, cliente_ciudad: datosEnvio.ciudad, cliente_direccion: datosEnvio.direccion, cliente_barrio: datosEnvio.barrio, es_primera_vez: datosEnvio.esPrimeraVez, metodo_pago: metodoPago, total_pares: totalPares, items: carrito, total, estado: metodoPago==='CONTRAENTREGA'?'pendiente_verificacion_contraentrega':'pendiente_guia', origen: 'maxima.stockos.vercel.app' }
+    const pedido = {
+      empresa_id: empresaIdFallback,
+      cliente_nombre: datosEnvio.nombre,
+      cliente_telefono: datosEnvio.telefono,
+      cliente_cedula: datosEnvio.cedula,
+      cliente_ciudad: datosEnvio.ciudad,
+      cliente_direccion: datosEnvio.direccion,
+      cliente_barrio: datosEnvio.barrio,
+      cliente_notas: datosEnvio.notas,
+      es_primera_vez: historialCliente.esPrimeraVez,
+      total_pedidos_previos: historialCliente.totalPedidos,
+      metodo_pago: metodoPago,
+      total_pares: totalPares,
+      items: carrito,
+      total,
+      estado: metodoPago==='CONTRAENTREGA'?'pendiente_verificacion_contraentrega':'pendiente_guia',
+      origen: 'maxima.stockos.vercel.app'
+    }
     try{
       await supabase.from('pedidos').insert(pedido)
       await fetch(`https://n8n.tu-dominio.com/webhook/stockos/pedido`,{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(pedido) }).catch(()=>{})
-      window.open(`https://wa.me/573186411851?text=${encodeURIComponent(`Pedido MAXIMA ${metodoPago}\n${carrito.map(c=>`• ${c.referencia} T${c.talla} x${c.cantidad}`).join('\n')}\nTotal $${total.toLocaleString()}\n${datosEnvio.nombre} ${datosEnvio.telefono}\n${datosEnvio.ciudad} ${datosEnvio.direccion}\n1ra vez:${datosEnvio.esPrimeraVez?'SI':'NO'}`)}`,'_blank')
+      window.open(`https://wa.me/573186411851?text=${encodeURIComponent(`Pedido MAXIMA ${metodoPago}\n${carrito.map(c=>`• ${c.referencia} T${c.talla} x${c.cantidad}`).join('\n')}\nTotal $${total.toLocaleString()}\n${datosEnvio.nombre} ${datosEnvio.telefono}\n${datosEnvio.ciudad} ${datosEnvio.direccion}\nCompra #${historialCliente.totalPedidos+1}`)}`,'_blank')
       setCarrito([]); setShowCart(false); setPaso(1)
-      alert('Pedido guardado. Guía se genera.')
-    }catch{}
+      alert(`Pedido guardado. ${historialCliente.esPrimeraVez?'1ra compra - contraentrega válida':'Compra #'+(historialCliente.totalPedidos+1)+' - contraentrega bloqueada'}. Guía se genera.`)
+    }catch(e){ console.log(e) }
   }
 
   return(
@@ -95,67 +141,46 @@ export default function CatalogoPublico(){
           <div className="bg-white w-full max-w-md h-full flex flex-col">
             <div className="bg-black text-white p-4 flex justify-between items-center"><h3 className="font-black text-sm">{paso===1?'CARRITO':paso===2?'DATOS ENVÍO':'MÉTODO DE PAGO'}</h3><button onClick={()=>setShowCart(false)} className="bg-white text-black w-7 h-7 rounded-full">X</button></div>
             <div className="flex-1 overflow-auto p-4">
-              {paso===1 && <div className="space-y-2">{carrito.map((c,i)=><div key={i} className="flex justify-between border p-2 rounded text-xs"><div><b>{c.referencia}</b><br/>T:{c.talla} x{c.cantidad} - ${Number(c.precio).toLocaleString()}</div><button onClick={()=>setCarrito(prev=>prev.filter((_,idx)=>idx!==i))} className="text-red-500">X</button></div>)}</div>}
+              {paso===1 && <div className="space-y-2">{carrito.map((c,i)=><div key={i} className="flex justify-between border p-2 rounded text-xs"><div><b>{c.referencia}</b><br/>T:{c.talla} x{c.cantidad} - ${Number(c.precio).toLocaleString()}</div><button onClick={()=>setCarrito(prev=>prev.filter((_,idx)=>idx!==i))} className="text-red-500">X</button></div>)}{carrito.length>0 && <div className="font-black flex justify-between mt-4 border-t pt-2"><span>Total {totalPares} pares</span><span>${total.toLocaleString()}</span></div>}</div>}
               {paso===2 && (
                 <div className="space-y-3">
-                  <div className="text-xs font-black">DATOS PARA GUÍA</div>
+                  <div className="text-xs font-black">DATOS PARA GUÍA - Se verifica en Supabase</div>
                   <input value={datosEnvio.nombre} onChange={e=>setDatosEnvio({...datosEnvio,nombre:e.target.value})} placeholder="Nombre completo *" className="w-full border p-2 rounded text-xs"/>
-                  <div className="grid grid-cols-2 gap-2"><input value={datosEnvio.telefono} onChange={e=>setDatosEnvio({...datosEnvio,telefono:e.target.value})} placeholder="WhatsApp *" className="border p-2 rounded text-xs"/><input value={datosEnvio.cedula} onChange={e=>setDatosEnvio({...datosEnvio,cedula:e.target.value})} placeholder="Cédula" className="border p-2 rounded text-xs"/></div>
+                  <div className="grid grid-cols-2 gap-2"><input value={datosEnvio.telefono} onChange={e=>setDatosEnvio({...datosEnvio,telefono:e.target.value})} placeholder="WhatsApp * 304..." className="border p-2 rounded text-xs"/><input value={datosEnvio.cedula} onChange={e=>setDatosEnvio({...datosEnvio,cedula:e.target.value})} placeholder="Cédula" className="border p-2 rounded text-xs"/></div>
+                  {historialCliente.verificando && <div className="text- text-blue-600">Verificando en Supabase...</div>}
+                  {!historialCliente.verificando && datosEnvio.telefono && <div className={`text- p-2 rounded ${historialCliente.esPrimeraVez?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}`}>{historialCliente.esPrimeraVez?`✅ Primera compra - Contraentrega habilitada (hasta 2 pares)`:`❌ Ya tienes ${historialCliente.totalPedidos} pedido(s) - Contraentrega NO habilitada - Esta es compra #${historialCliente.totalPedidos+1}`}</div>}
                   <div className="grid grid-cols-2 gap-2"><input value={datosEnvio.ciudad} onChange={e=>setDatosEnvio({...datosEnvio,ciudad:e.target.value})} placeholder="Ciudad *" className="border p-2 rounded text-xs"/><input value={datosEnvio.barrio} onChange={e=>setDatosEnvio({...datosEnvio,barrio:e.target.value})} placeholder="Barrio" className="border p-2 rounded text-xs"/></div>
                   <input value={datosEnvio.direccion} onChange={e=>setDatosEnvio({...datosEnvio,direccion:e.target.value})} placeholder="Dirección *" className="w-full border p-2 rounded text-xs"/>
-                  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={datosEnvio.esPrimeraVez} onChange={e=>setDatosEnvio({...datosEnvio,esPrimeraVez:e.target.checked})}/> Es mi primera compra</label>
                 </div>
               )}
               {paso===3 && (
                 <div className="space-y-3">
                   <div className="text-xs font-black">MÉTODOS DE PAGO AUTORIZADOS</div>
-
-                  <label className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='NEQUI'?'border-black bg-gray-50':'border-gray-200'}`}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 bg-[#2000B1] rounded-full flex items-center justify-center text-white font-black text-">N</div>
-                      <div><div className="font-black text-xs">【entity-Nequi¦canonical_name=Nequi】</div><div className="text- text-gray-500">3186411851</div></div>
-                    </div>
-                    <input type="radio" checked={metodoPago==='【entity-NEQUI¦canonical_name=Nequi】'} onChange={()=>setMetodoPago('【entity-NEQUI¦canonical_name=Nequi】')}/>
-                  </label>
-
-                  <label className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='BANCOLOMBIA'?'border-black bg-gray-50':'border-gray-200'}`}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 bg-[#FFC300] rounded-full flex items-center justify-center font-black text-">B</div>
-                      <div><div className="font-black text-xs">Bancolombia</div><div className="text- text-gray-500">Ahorros 9127560414</div></div>
-                    </div>
-                    <input type="radio" checked={metodoPago==='BANCOLOMBIA'} onChange={()=>setMetodoPago('BANCOLOMBIA')}/>
-                  </label>
-
-                  <label className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='BRE-B'?'border-black bg-gray-50':'border-gray-200'}`}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 bg-black rounded-full flex items-center justify-center text-white text-">🔑</div>
-                      <div><div className="font-black text-xs">Llave Bre-B</div><div className="text- text-gray-500">83615157565</div></div>
-                    </div>
-                    <input type="radio" checked={metodoPago==='BRE-B'} onChange={()=>setMetodoPago('BRE-B')}/>
-                  </label>
+                  <label className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='NEQUI'?'border-black bg-gray-50':'border-gray-200'}`}><div className="flex items-center gap-2"><div className="w-7 h-7 bg-[#2000B1] rounded-full flex items-center justify-center text-white font-black text-">N</div><div><div className="font-black text-xs">【entity-Nequi¦canonical_name=Nequi】</div><div className="text- text-gray-500">3186411851</div></div></div><input type="radio" checked={metodoPago==='【entity-NEQUI¦canonical_name=Nequi】'} onChange={()=>setMetodoPago('【entity-NEQUI¦canonical_name=Nequi】')}/></label>
+                  <label className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='BANCOLOMBIA'?'border-black bg-gray-50':'border-gray-200'}`}><div className="flex items-center gap-2"><div className="w-7 h-7 bg-[#FFC300] rounded-full flex items-center justify-center font-black text-">B</div><div><div className="font-black text-xs">【entity-Bancolombia¦canonical_name=Bancolombia】</div><div className="text- text-gray-500">Ahorros 9127560414</div></div></div><input type="radio" checked={metodoPago==='【entity-BANCOLOMBIA¦canonical_name=Bancolombia】'} onChange={()=>setMetodoPago('【entity-BANCOLOMBIA¦canonical_name=Bancolombia】')}/></label>
+                  <label className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='BRE-B'?'border-black bg-gray-50':'border-gray-200'}`}><div className="flex items-center gap-2"><div className="w-7 h-7 bg-black rounded-full flex items-center justify-center text-white text-">🔑</div><div><div className="font-black text-xs">Llave Bre-B</div><div className="text- text-gray-500">83615157565</div></div></div><input type="radio" checked={metodoPago==='BRE-B'} onChange={()=>setMetodoPago('BRE-B')}/></label>
 
                   <label className={`border-2 p-3 rounded cursor-pointer ${metodoPago==='CONTRAENTREGA'?'border-black bg-green-50':'border-gray-200'} ${!esContraentregaValida?'opacity-60':''}`}>
                     <div className="flex justify-between items-start">
                       <div className="flex gap-2">
                         <div className="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-white text-">📦</div>
                         <div className="pr-2">
-                          <div className="font-black text-xs">Contraentrega</div>
-                          <div className="text- leading-tight mt-1">Hasta <b>2 pares máximo por primera vez</b>. Según peso y lugar de envío + anticipo del envío. Sujeto a verificación.</div>
-                          {!esContraentregaValida && <div className="text- text-red-600 font-bold mt-1">{totalPares>2?'❌ Máximo 2 pares':!datosEnvio.esPrimeraVez?'❌ Solo primera compra':''}</div>}
+                          <div className="font-black text-xs">Contraentrega {esContraentregaValida?'✅':''}</div>
+                          <div className="text- leading-tight mt-1">Hasta <b>2 pares máximo por primera vez</b>. Según peso y lugar + anticipo. {historialCliente.esPrimeraVez?'Aplica verificación.':'NO aplica - 2da compra.'}</div>
+                          <div className="text- mt-1">Llevas: {totalPares} pares | Pedidos previos: {historialCliente.totalPedidos}</div>
+                          {!esContraentregaValida && <div className="text- text-red-600 font-bold mt-1">{!historialCliente.esPrimeraVez?`❌ Ya tienes ${historialCliente.totalPedidos} compra(s) - Contraentrega deshabilitada`:`❌ Máximo 2 pares`}</div>}
                         </div>
                       </div>
                       <input type="radio" disabled={!esContraentregaValida} checked={metodoPago==='CONTRAENTREGA'} onChange={()=>setMetodoPago('CONTRAENTREGA')}/>
                     </div>
                   </label>
-
-                  <div className="bg-gray-50 p-3 rounded text-xs"><div className="font-black">Resumen guía:</div><div>{datosEnvio.nombre} {datosEnvio.telefono}</div><div>{datosEnvio.ciudad} {datosEnvio.direccion}</div><div className="mt-2 font-black">Total: ${total.toLocaleString()} - {totalPares} pares</div></div>
                 </div>
               )}
             </div>
             <div className="p-4 border-t">
               {paso===1 && <button onClick={()=>{if(carrito.length===0)return; setPaso(2)}} className="w-full bg-black text-white py-3 rounded font-black text-xs">CONTINUAR → DATOS ENVÍO</button>}
               {paso===2 && <div className="flex gap-2"><button onClick={()=>setPaso(1)} className="w-1/3 bg-gray-200 py-3 rounded font-black text-xs">← VOLVER</button><button onClick={()=>setPaso(3)} className="w-2/3 bg-black text-white py-3 rounded font-black text-xs">CONTINUAR → PAGO</button></div>}
-              {paso===3 && <div className="flex gap-2"><button onClick={()=>setPaso(2)} className="w-1/3 bg-gray-200 py-3 rounded font-black text-xs">← VOLVER</button><button onClick={finalizarPedido} className="w-2/3 bg-green-600 text-white py-3 rounded font-black text-xs">FINALIZAR PEDIDO - GENERAR GUÍA</button></div>}
+              {paso===3 && <div className="flex gap-2"><button onClick={()=>setPaso(2)} className="w-1/3 bg-gray-200 py-3 rounded font-black text-xs">← VOLVER</button><button onClick={finalizarPedido} className="w-2/3 bg-green-600 text-white py-3 rounded font-black text-xs">FINALIZAR - GENERAR GUÍA</button></div>}
             </div>
           </div>
         </div>
