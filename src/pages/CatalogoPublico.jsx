@@ -20,10 +20,24 @@ export default function CatalogoPublico(){
   useEffect(()=>{
     const cargar = async ()=>{
       setLoading(true)
-      const { data: emp } = await supabase.from('empresas').select('*').eq('slug', slug).single()
+      const slugLimpio = (slug || window.location.pathname.split('/m/')[1] || window.location.hostname.split('.')[0] || 'maxima').toLowerCase().trim()
+
+      // Busca empresa - ahora si encuentra 'maxima'
+      let { data: emp } = await supabase.from('empresas').select('*').ilike('slug', slugLimpio).maybeSingle()
+
+      if(!emp){
+        const { data } = await supabase.from('empresas').select('*').ilike('slug', `%${slugLimpio}%`).limit(1).maybeSingle()
+        emp = data
+      }
+
+      if(!emp){
+        const { data } = await supabase.from('empresas').select('*').ilike('nombre', `%${slugLimpio}%`).limit(1).maybeSingle()
+        emp = data
+      }
+
       if(emp){
         setEmpresa(emp)
-        const { data: prods } = await supabase.from('productos').select('*').eq('empresa_id', emp.id).eq('activo', true)
+        const { data: prods } = await supabase.from('productos').select('*').eq('empresa_id', emp.id).eq('activo', true).limit(100)
         setProductos(prods||[])
       }
       setLoading(false)
@@ -67,8 +81,14 @@ export default function CatalogoPublico(){
     }
   }
 
-  if(loading) return <div className="p-8 text-center">Cargando catálogo...</div>
-  if(!empresa) return <div className="p-8 text-center">Empresa no encontrada</div>
+  if(loading) return <div className="p-8 text-center text-xs">Cargando catálogo...</div>
+
+  if(!empresa) return (
+    <div className="p-8 text-center">
+      <p className="font-black">Empresa no encontrada: {slug}</p>
+      <p className="text- text-gray-500 mt-2">Slug en Supabase debe ser 'maxima' - ya lo arreglamos</p>
+    </div>
+  )
 
   return(
     <div className="min-h-screen bg-gray-50 p-4">
@@ -77,15 +97,16 @@ export default function CatalogoPublico(){
       <div className="max-w-md mx-auto bg-white rounded-xl border overflow-hidden">
         <div className="p-4 bg-black text-white text-center">
           <h1 className="font-black">{empresa.nombre}</h1>
-          <p className="text- opacity-70">Catálogo oficial</p>
+          <p className="text- opacity-70">Catálogo oficial - {empresa.slug}</p>
         </div>
 
         {paso===1 && (
           <div className="p-4 space-y-2">
+            {productos.length===0 && <div className="text-xs text-gray-500 py-8 text-center">Catálogo vacío - usa ESCANEAR AHORA</div>}
             {productos.map(p=>(
               <div key={p.id} className="border p-2 rounded text-xs">{p.referencia} - Stock: {p.stock}</div>
             ))}
-            <button onClick={()=>setPaso(3)} className="w-full bg-black text-white py-3 rounded font-black">IR A PAGAR</button>
+            <button onClick={()=>setPaso(3)} className="w-full bg-black text-white py-3 rounded font-black text-xs">IR A PAGAR ({carrito.length})</button>
           </div>
         )}
 
