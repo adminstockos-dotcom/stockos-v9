@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 
 const DEMO = [
-  { referencia: 'BLUSA-SATIN-001', talla: 'M', precio: 45000, stock_proveedor: 12 },
-  { referencia: 'JEAN-MOM-002', talla: '32', precio: 78000, stock_proveedor: 8 },
-  { referencia: 'VESTIDO-LIN-003', talla: 'S', precio: 62000, stock_proveedor: 5 },
-  { referencia: 'CROP-TOP-004', talla: 'L', precio: 35000, stock_proveedor: 20 },
-  { referencia: 'FALDA-DRILL-005', talla: '30', precio: 55000, stock_proveedor: 10 },
+  { referencia: 'BLUSA-SATIN-001', talla: 'M', precio: 45000 },
+  { referencia: 'JEAN-MOM-002', talla: '32', precio: 78000 },
+  { referencia: 'VESTIDO-LIN-003', talla: 'S', precio: 62000 },
+  { referencia: 'CROP-TOP-004', talla: 'L', precio: 35000 },
+  { referencia: 'FALDA-DRILL-005', talla: '30', precio: 55000 },
 ]
 
 export default function CatalogoPublico(){
@@ -19,15 +19,23 @@ export default function CatalogoPublico(){
   const [paso, setPaso] = useState(1)
   const [datosEnvio, setDatosEnvio] = useState({ nombre:'', telefono:'', cedula:'', ciudad:'', direccion:'', barrio:'' })
   const [metodoPago, setMetodoPago] = useState('NEQUI')
-  const [anticipoPago, setAnticipoPago] = useState('NEQUI')
+  const [anticipoPago, setAnticipoPago] = useState('BRE-B')
   const [historialCliente, setHistorialCliente] = useState({ totalPedidos: 0, esPrimeraVez: true, verificando: false })
+  const [toast, setToast] = useState('')
+  const [guia, setGuia] = useState(null)
+
+  const datosPago = {
+    NEQUI: { label: 'Nequi', numero: '3186411851' },
+    BANCOLOMBIA: { label: 'Bancolombia Ahorros', numero: '9127560414' },
+    'BRE-B': { label: 'Llave Bre-B', numero: '83615157565' },
+  }
 
   useEffect(()=>{
     const saved = localStorage.getItem('stockos_carrito_maxima')
     if(saved) setCarrito(JSON.parse(saved))
     const cargar = async () => {
       const { data: emp } = await supabase.from('empresas').select('id,nombre,logo,logo_url').eq('id', empresaIdFallback).single()
-      if(emp) setEmpresa({ nombre: emp.nombre || 'MAXIMA IMPORTADORES', logo: emp.logo_url || emp.logo || null })
+      if(emp) setEmpresa({ nombre: emp.nombre, logo: emp.logo_url || emp.logo || null })
       const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaIdFallback).limit(500)
       if(data?.length>0) setItems(data)
     }
@@ -35,6 +43,21 @@ export default function CatalogoPublico(){
   },[])
 
   useEffect(()=>{ localStorage.setItem('stockos_carrito_maxima', JSON.stringify(carrito)) },[carrito])
+
+  const copiar = (texto) => {
+    navigator.clipboard.writeText(texto)
+    setToast(`Copiado: ${texto}`)
+    setTimeout(()=>setToast(''), 2000)
+  }
+
+  const seleccionarPago = (metodo) => {
+    setMetodoPago(metodo)
+    if(datosPago[metodo]) copiar(datosPago[metodo].numero)
+  }
+  const seleccionarAnticipo = (metodo) => {
+    setAnticipoPago(metodo)
+    if(datosPago[metodo]) copiar(datosPago[metodo].numero)
+  }
 
   const verificarCliente = async () => {
     if(datosEnvio.telefono.length<10) return
@@ -49,14 +72,12 @@ export default function CatalogoPublico(){
   const total = carrito.reduce((s,p)=>s+Number(p.precio||0)*p.cantidad,0)
   const totalPares = carrito.reduce((s,p)=>s+p.cantidad,0)
   const esContraentregaValida = historialCliente.esPrimeraVez && totalPares>=1 && totalPares<=2
-
   const getCantidad = (ref, talla) => carrito.find(c=>c.referencia===ref && c.talla===talla)?.cantidad || 0
-
-  const addCarrito = (prod, cant=1) => {
+  const addCarrito = (prod) => {
     setCarrito(prev=>{
       const ex = prev.find(p=>p.referencia===prod.referencia && p.talla===prod.talla)
-      if(ex) return prev.map(p=>p===ex?{...p,cantidad:p.cantidad+cant}:p)
-      return [...prev,{...prod,cantidad:cant}]
+      if(ex) return prev.map(p=>p===ex?{...p,cantidad:p.cantidad+1}:p)
+      return [...prev,{...prod,cantidad:1}]
     })
   }
   const restarCarrito = (prod) => {
@@ -72,43 +93,76 @@ export default function CatalogoPublico(){
   const filtrados = lista.filter(i=> i.referencia.toLowerCase().includes(busqueda.toLowerCase()))
 
   const finalizarPedido = async () => {
-    const pedido = {
+    if(!datosEnvio.nombre ||!datosEnvio.telefono ||!datosEnvio.ciudad ||!datosEnvio.direccion) return alert('Faltan datos de envío')
+
+    const nuevaGuia = {
+      numero: `GUIA-${Date.now().toString().slice(-6)}`,
+      fecha: new Date().toLocaleString(),
+      cliente: {...datosEnvio},
+      items: [...carrito],
+      total, totalPares,
+      metodoPago,
+      anticipoPago: metodoPago==='CONTRAENTREGA'? anticipoPago : null,
+      anticipoNumero: metodoPago==='CONTRAENTREGA'? datosPago[anticipoPago].numero : datosPago[metodoPago]?.numero
+    }
+    setGuia(nuevaGuia)
+
+    const pedidoDB = {
       empresa_id: empresaIdFallback, cliente_nombre: datosEnvio.nombre, cliente_telefono: datosEnvio.telefono,
       cliente_cedula: datosEnvio.cedula, cliente_ciudad: datosEnvio.ciudad, cliente_direccion: datosEnvio.direccion,
       cliente_barrio: datosEnvio.barrio, es_primera_vez: historialCliente.esPrimeraVez, metodo_pago: metodoPago,
       anticipo_metodo: metodoPago==='CONTRAENTREGA'?anticipoPago:null, total_pares: totalPares, items: carrito, total,
-      estado: metodoPago==='CONTRAENTREGA'?'pendiente_anticipo_envio':'pendiente_guia', origen: 'maxima.stockos.vercel.app'
+      estado: metodoPago==='CONTRAENTREGA'?'pendiente_anticipo_envio':'pendiente_guia'
     }
-    await supabase.from('pedidos').insert(pedido)
-    window.open(`https://wa.me/573186411851?text=${encodeURIComponent(`Pedido ${metodoPago} ${totalPares} pares $${total}`)}`,'_blank')
-    setCarrito([]); setShowCart(false)
+    await supabase.from('pedidos').insert(pedidoDB)
+
+    let msg = `*NUEVO PEDIDO MAXIMA* - ${nuevaGuia.numero}\n`
+    msg += `${carrito.map(c=>`• ${c.referencia} T:${c.talla} x${c.cantidad}`).join('\n')}\n`
+    msg += `Total: $${total.toLocaleString()} (${totalPares} pares)\n`
+    msg += `Cliente: ${datosEnvio.nombre} - ${datosEnvio.telefono}\n`
+    msg += `${datosEnvio.ciudad} - ${datosEnvio.direccion} - ${datosEnvio.barrio}\n`
+    msg += `Pago: ${metodoPago} ${metodoPago==='CONTRAENTREGA'?`+ Anticipo ${anticipoPago} ${datosPago[anticipoPago].numero}`: `${datosPago[metodoPago].numero}`}\n`
+    msg += `Guia: ${nuevaGuia.numero}`
+    window.open(`https://wa.me/573186411851?text=${encodeURIComponent(msg)}`,'_blank')
   }
 
   return(
     <div className="min-h-screen bg-white">
-      {/* HEADER AZUL IGUAL AL PANEL */}
+      {/* HEADER AZUL */}
       <div className="bg-[#0f2d52] text-white px-4 py-3 flex items-center justify-between sticky top-0 z-20">
-        {/* IZQUIERDA LOGO STOCKOS */}
-        <div className="flex items-center gap-2">
-          <div className="bg-white text-[#0f2d52] w-8 h-8 rounded-full flex items-center justify-center font-black">S</div>
-          <span className="font-black text- tracking-widest">STOCKOS</span>
-        </div>
-
-        {/* CENTRO LOGO EMPRESA DINAMICO */}
+        <div className="flex items-center gap-2"><div className="bg-white text-[#0f2d52] w-8 h-8 rounded-full flex items-center justify-center font-black">S</div><span className="font-black text-">STOCKOS</span></div>
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
-          {empresa.logo? <img src={empresa.logo} className="w-9 h-9 rounded-full bg-white object-cover border-2 border-white"/> : <div className="w-9 h-9 rounded-full bg-white text-[#0f2d52] flex items-center justify-center font-black">{empresa.nombre[0]}</div>}
-          <div className="leading-none hidden md:block">
-            <div className="font-black text- uppercase">{empresa.nombre}</div>
-            <div className="text- text-gray-300">CATALOGO OFICIAL</div>
-          </div>
+          {empresa.logo? <img src={empresa.logo} className="w-9 h-9 rounded-full bg-white object-cover border-2 border-white"/> : <div className="w-9 h-9 rounded-full bg-white text-[#0f2d52] flex items-center justify-center font-black">M</div>}
+          <div className="hidden md:block leading-none"><div className="font-black text- uppercase">{empresa.nombre}</div><div className="text- text-gray-300">CATALOGO OFICIAL</div></div>
         </div>
-
-        {/* DERECHA BUSCADOR + CARRITO */}
         <div className="flex items-center gap-2">
           <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar ref..." className="text-black px-3 py-2 rounded text-xs w-28 md:w-60"/>
           <button onClick={()=>{setShowCart(true); setPaso(1)}} className="bg-white text-black px-4 py-2 rounded-full font-black text-xs">🛒 {totalPares} | ${total.toLocaleString()}</button>
         </div>
       </div>
+
+      {toast && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full text-xs z-[100] font-black">{toast} ✅ Copiado</div>}
+
+      {/* GUIA IMPRIMIBLE */}
+      {guia && (
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-xl overflow-hidden">
+            <div id="printable-guia" className="p-6 text-black">
+              <div className="flex justify-between border-b pb-3"><div><div className="font-black text-lg">GUÍA DE ENVÍO - {guia.numero}</div><div className="text-xs">{guia.fecha} - {empresa.nombre}</div></div><div className="text-right"><div className="font-black">{guia.metodoPago}</div><div className="text-xs">{guia.metodoPago==='CONTRAENTREGA'?`Anticipo ${guia.anticipoPago}: ${guia.anticipoNumero}`:`Pago: ${guia.anticipoNumero}`}</div></div></div>
+              <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
+                <div><div className="font-black">REMITENTE:</div><div>MÁXIMA IMPORTADORES</div><div>3186411851</div></div>
+                <div><div className="font-black">DESTINATARIO:</div><div>{guia.cliente.nombre} - {guia.cliente.telefono}</div><div>{guia.cliente.ciudad} - {guia.cliente.barrio}</div><div>{guia.cliente.direccion}</div><div>CC: {guia.cliente.cedula}</div></div>
+              </div>
+              <div className="mt-4 text-xs"><div className="font-black">CONTENIDO:</div>{guia.items.map((it,i)=><div key={i} className="flex justify-between border-b py-1"><span>{it.referencia} T:{it.talla} x{it.cantidad}</span><span>${Number(it.precio).toLocaleString()}</span></div>)}<div className="flex justify-between font-black mt-2"><span>{guia.totalPares} PARES</span><span>${guia.total.toLocaleString()}</span></div></div>
+              <div className="mt-4 text- text-center">*** Pegar esta guía en el paquete ***</div>
+            </div>
+            <div className="p-4 flex gap-2 bg-gray-100">
+              <button onClick={()=>window.print()} className="flex-1 bg-black text-white py-3 rounded font-black text-xs">🖨️ IMPRIMIR GUÍA</button>
+              <button onClick={()=>{setGuia(null); setCarrito([]); setShowCart(false)}} className="flex-1 bg-white border py-3 rounded font-black text-xs">CERRAR</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto p-4">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -121,16 +175,8 @@ export default function CatalogoPublico(){
                   <div className="font-black text- truncate">{it.referencia}</div>
                   <div className="text- text-gray-500">Talla: {it.talla}</div>
                   <div className="font-black text- mt-1">${Number(it.precio).toLocaleString()}</div>
-
-                  {cant===0? (
-                    <button onClick={()=>addCarrito(it,1)} className="mt-2 w-full bg-black text-white py-2.5 rounded font-black text-">AÑADIR AL CARRITO</button>
-                  ) : (
-                    <div className="mt-2 flex items-center justify-between bg-black text-white rounded py-1 px-2">
-                      <button onClick={()=>restarCarrito(it)} className="w-8 h-8 bg-white text-black rounded-full font-black">-</button>
-                      <span className="font-black text-">{cant} pares</span>
-                      <button onClick={()=>addCarrito(it,1)} className="w-8 h-8 bg-white text-black rounded-full font-black">+</button>
-                    </div>
-                  )}
+                  {cant===0? <button onClick={()=>addCarrito(it)} className="mt-2 w-full bg-black text-white py-2.5 rounded font-black text-">AÑADIR AL CARRITO</button> :
+                  <div className="mt-2 flex items-center justify-between bg-black text-white rounded py-1 px-2"><button onClick={()=>restarCarrito(it)} className="w-8 h-8 bg-white text-black rounded-full font-black">-</button><span className="font-black text-">{cant}</span><button onClick={()=>addCarrito(it)} className="w-8 h-8 bg-white text-black rounded-full font-black">+</button></div>}
                 </div>
               </div>
             )
@@ -138,21 +184,38 @@ export default function CatalogoPublico(){
         </div>
       </div>
 
-      {showCart && (
+      {showCart &&!guia && (
         <div className="fixed inset-0 bg-black/50 z-50 flex justify-end">
           <div className="bg-white w-full max-w-md h-full flex flex-col">
-            <div className="bg-[#0f2d52] text-white p-4 flex justify-between items-center"><h3 className="font-black text-sm">{paso===1?'CARRITO':paso===2?'DATOS ENVÍO':'MÉTODO DE PAGO'}</h3><button onClick={()=>setShowCart(false)} className="bg-white text-black w-7 h-7 rounded-full">X</button></div>
-            <div className="flex-1 overflow-auto p-4">
-              {paso===1 && <div className="space-y-2">{carrito.map((c,i)=><div key={i} className="flex justify-between border p-2 rounded text-xs"><div><b>{c.referencia}</b><br/>T:{c.talla} x{c.cantidad}</div><div className="flex items-center gap-2"><button onClick={()=>restarCarrito(c)} className="w-6 h-6 border rounded-full">-</button><span>{c.cantidad}</span><button onClick={()=>addCarrito(c,1)} className="w-6 h-6 border rounded-full">+</button></div></div>)}<div className="font-black flex justify-between mt-4">Total {totalPares} pares <span>${total.toLocaleString()}</span></div></div>}
-              {paso===2 && <div className="space-y-3"><input value={datosEnvio.nombre} onChange={e=>setDatosEnvio({...datosEnvio,nombre:e.target.value})} placeholder="Nombre *" className="w-full border p-2 rounded text-xs"/><input value={datosEnvio.telefono} onChange={e=>setDatosEnvio({...datosEnvio,telefono:e.target.value})} placeholder="WhatsApp *" className="w-full border p-2 rounded text-xs"/>{!historialCliente.verificando && datosEnvio.telefono && <div className={`text- p-2 rounded ${historialCliente.esPrimeraVez?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}`}>{historialCliente.esPrimeraVez?'✅ 1ra compra':'❌ 2da compra - sin contraentrega'}</div>}<input value={datosEnvio.ciudad} onChange={e=>setDatosEnvio({...datosEnvio,ciudad:e.target.value})} placeholder="Ciudad *" className="w-full border p-2 rounded text-xs"/><input value={datosEnvio.direccion} onChange={e=>setDatosEnvio({...datosEnvio,direccion:e.target.value})} placeholder="Dirección *" className="w-full border p-2 rounded text-xs"/></div>}
-              {paso===3 && <div className="space-y-3">
-                <label className={`border-2 p-3 rounded flex justify-between ${metodoPago==='NEQUI'?'border-black bg-gray-50':''}`}><span className="text-xs font-black">Nequi - 3186411851</span><input type="radio" checked={metodoPago==='NEQUI'} onChange={()=>setMetodoPago('NEQUI')}/></label>
-                <label className={`border-2 p-3 rounded flex justify-between ${metodoPago==='BANCOLOMBIA'?'border-black bg-gray-50':''}`}><span className="text-xs font-black">Bancolombia - 9127560414</span><input type="radio" checked={metodoPago==='BANCOLOMBIA'} onChange={()=>setMetodoPago('BANCOLOMBIA')}/></label>
-                <label className={`border-2 p-3 rounded flex justify-between ${metodoPago==='BRE-B'?'border-black bg-gray-50':''}`}><span className="text-xs font-black">Llave Bre-B - 83615157565</span><input type="radio" checked={metodoPago==='BRE-B'} onChange={()=>setMetodoPago('BRE-B')}/></label>
-                <label className={`border-2 p-3 rounded ${metodoPago==='CONTRAENTREGA'?'border-green-600 bg-green-50':''} ${!esContraentregaValida?'opacity-60':''}`}><div className="flex justify-between"><div><div className="font-black text-xs">Contraentrega</div><div className="text-">Hasta 2 pares max 1ra vez + anticipo</div></div><input type="radio" disabled={!esContraentregaValida} checked={metodoPago==='CONTRAENTREGA'} onChange={()=>setMetodoPago('CONTRAENTREGA')}/></div>{metodoPago==='CONTRAENTREGA' && esContraentregaValida && <div className="mt-3 bg-yellow-50 border border-yellow-400 p-2 rounded"><div className="text- font-black">Paga anticipo envío:</div><div className="flex gap-2 mt-2"><button onClick={()=>setAnticipoPago('NEQUI')} className={`px-3 py-1 rounded text-xs border ${anticipoPago==='NEQUI'?'bg-black text-white':''}`}>Nequi</button><button onClick={()=>setAnticipoPago('BANCOLOMBIA')} className={`px-3 py-1 rounded text-xs border ${anticipoPago==='BANCOLOMBIA'?'bg-black text-white':''}`}>Bancolombia</button><button onClick={()=>setAnticipoPago('BRE-B')} className={`px-3 py-1 rounded text-xs border ${anticipoPago==='BRE-B'?'bg-black text-white':''}`}>Bre-B</button></div></div>}</label>
-              </div>}
+            <div className="bg-[#0f2d52] text-white p-4 flex justify-between items-center"><h3 className="font-black text-sm">MÉTODO DE PAGO</h3><button onClick={()=>setShowCart(false)} className="bg-white text-black w-7 h-7 rounded-full">X</button></div>
+            <div className="flex-1 overflow-auto p-4 space-y-3">
+              {paso===1 && <div className="space-y-2">{carrito.map((c,i)=><div key={i} className="flex justify-between border p-2 rounded text-xs"><span>{c.referencia} x{c.cantidad}</span><div className="flex gap-1"><button onClick={()=>restarCarrito(c)} className="border w-6 h-6 rounded-full">-</button><button onClick={()=>addCarrito(c)} className="border w-6 h-6 rounded-full">+</button></div></div>)}<button onClick={()=>setPaso(2)} className="w-full bg-black text-white py-3 rounded font-black text-xs mt-4">CONTINUAR</button></div>}
+              {paso===2 && <div className="space-y-2"><input value={datosEnvio.nombre} onChange={e=>setDatosEnvio({...datosEnvio,nombre:e.target.value})} placeholder="Nombre *" className="w-full border p-2 rounded text-xs"/><input value={datosEnvio.telefono} onChange={e=>setDatosEnvio({...datosEnvio,telefono:e.target.value})} placeholder="WhatsApp *" className="w-full border p-2 rounded text-xs"/><input value={datosEnvio.ciudad} onChange={e=>setDatosEnvio({...datosEnvio,ciudad:e.target.value})} placeholder="Ciudad *" className="w-full border p-2 rounded text-xs"/><input value={datosEnvio.direccion} onChange={e=>setDatosEnvio({...datosEnvio,direccion:e.target.value})} placeholder="Dirección *" className="w-full border p-2 rounded text-xs"/><button onClick={()=>setPaso(3)} className="w-full bg-black text-white py-3 rounded font-black text-xs">CONTINUAR A PAGO</button></div>}
+              {paso===3 && (
+                <div className="space-y-3">
+                  <div onClick={()=>seleccionarPago('NEQUI')} className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='NEQUI'?'border-black bg-gray-50':''}`}><span className="text-xs font-black">Nequi - 3186411851 {metodoPago==='NEQUI'?'✅ Copiado':''}</span><input type="radio" checked={metodoPago==='NEQUI'} readOnly/></div>
+                  <div onClick={()=>seleccionarPago('BANCOLOMBIA')} className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='BANCOLOMBIA'?'border-black bg-gray-50':''}`}><span className="text-xs font-black">Bancolombia - 9127560414 {metodoPago==='BANCOLOMBIA'?'✅ Copiado':''}</span><input type="radio" checked={metodoPago==='BANCOLOMBIA'} readOnly/></div>
+                  <div onClick={()=>seleccionarPago('BRE-B')} className={`border-2 p-3 rounded flex justify-between items-center cursor-pointer ${metodoPago==='BRE-B'?'border-black bg-gray-50':''}`}><span className="text-xs font-black">Llave Bre-B - 83615157565 {metodoPago==='BRE-B'?'✅ Copiado':''}</span><input type="radio" checked={metodoPago==='BRE-B'} readOnly/></div>
+
+                  <label className={`border-2 p-3 rounded block ${metodoPago==='CONTRAENTREGA'?'border-green-600 bg-green-50':''} ${!esContraentregaValida?'opacity-60':''}`}>
+                    <div className="flex justify-between items-center" onClick={()=>esContraentregaValida && seleccionarPago('CONTRAENTREGA')}><div><div className="font-black text-xs">Contraentrega</div><div className="text-">Hasta 2 pares max 1ra vez + anticipo</div></div><input type="radio" disabled={!esContraentregaValida} checked={metodoPago==='CONTRAENTREGA'} readOnly/></div>
+                    {metodoPago==='CONTRAENTREGA' && esContraentregaValida && (
+                      <div className="mt-3 bg-yellow-50 border border-yellow-400 p-3 rounded">
+                        <div className="font-black text-xs">Paga anticipo envío:</div>
+                        <div className="flex gap-2 mt-2">
+                          <button onClick={()=>seleccionarAnticipo('NEQUI')} className={`px-3 py-1.5 rounded text-xs border ${anticipoPago==='NEQUI'?'bg-black text-white':''}`}>Nequi</button>
+                          <button onClick={()=>seleccionarAnticipo('BANCOLOMBIA')} className={`px-3 py-1.5 rounded text-xs border ${anticipoPago==='BANCOLOMBIA'?'bg-black text-white':''}`}>Bancolombia</button>
+                          <button onClick={()=>seleccionarAnticipo('BRE-B')} className={`px-3 py-1.5 rounded text-xs border ${anticipoPago==='BRE-B'?'bg-black text-white':''}`}>Bre-B ✅</button>
+                        </div>
+                        <div className="text- mt-2">Número copiado: <b>{datosPago[anticipoPago].numero}</b> - Pégalo en tu banco.</div>
+                      </div>
+                    )}
+                  </label>
+                  <button onClick={finalizarPedido} className="w-full bg-[#0f2d52] text-white py-4 rounded font-black text-xs mt-4">FINALIZAR - GENERAR GUÍA</button>
+                  <div className="text- text-gray-500 text-center">Al finalizar se copia el número, te lleva a WhatsApp para confirmar y genera guía imprimible para envío.</div>
+                </div>
+              )}
             </div>
-            <div className="p-4 border-t"><button onClick={()=>{if(paso===1) setPaso(2); else if(paso===2) setPaso(3); else finalizarPedido()}} className="w-full bg-[#0f2d52] text-white py-3 rounded font-black text-xs">{paso===3?'FINALIZAR - GENERAR GUÍA':'CONTINUAR'}</button></div>
           </div>
         </div>
       )}
