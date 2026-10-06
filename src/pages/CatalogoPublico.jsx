@@ -9,6 +9,7 @@ export default function CatalogoPublico(){
   const [filtro,setFiltro]=useState('')
   const [carrito,setCarrito]=useState([])
   const [loading,setLoading]=useState(true)
+  const [showCarrito,setShowCarrito]=useState(false)
 
   useEffect(()=>{
     const load=async()=>{
@@ -52,11 +53,14 @@ export default function CatalogoPublico(){
           <span className="text-white font-black text-xs tracking-widest">STOCKOS</span>
         </div>
         <div className="flex items-center gap-2 text-white">
-          <div className="text-right"><div className="font-black text-">MÁXIMA IMPORTADORES</div><div className="text- opacity-60">/ CATALOGO OFICIAL</div></div>
+          <div className="text-right"><div className="font-black text-xs">MÁXIMA IMPORTADORES</div><div className="text- opacity-60">/ CATALOGO OFICIAL</div></div>
         </div>
         <div className="flex items-center gap-2">
           <div className="bg-[#2A3F5F] rounded-full flex items-center px-3 py-1.5"><input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="Buscar ref..." className="bg-transparent text-xs text-white placeholder-gray-400 outline-none w-28"/><span className="text-gray-400 text-xs">🔍</span></div>
-          <div className="bg-white rounded-full px-3 py-1.5 text- font-black">CARRITO {total}</div>
+          {/* BOTON ARRIBA CORREGIDO - CON ICONO Y CLICKEABLE */}
+          <button onClick={()=>setShowCarrito(true)} className="bg-white rounded-full px-3 py-1.5 text-xs font-black flex items-center gap-1.5 hover:bg-gray-100"[STRIPPED 25 bytes]"14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 20a1 1 0 100-2 1 1 0 000 2zM20 20a1 1 0 100-2 1 1 0 000 2zM1 4h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>
+            CARRITO {total}
+          </button>
         </div>
       </div>
 
@@ -77,9 +81,9 @@ export default function CatalogoPublico(){
                 <div className="absolute bottom-2 right-2 bg-white border text- px-2 py-0.5 rounded-full">{p.talla||'35-40'}</div>
               </div>
               <div className="p-3">
-                <div className="font-black text- uppercase">{p.referencia}</div>
+                <div className="font-black text-xs uppercase">{p.referencia}</div>
                 <div className="text- text-gray-500">TALLA {p.talla||'35-40'} • STOCKOS</div>
-                <div className="font-black text- mt-1">${p.precio.toLocaleString()}</div>
+                <div className="font-black text-xs mt-1">${p.precio.toLocaleString()}</div>
                 {enCarrito? (
                   <div className="flex items-center justify-between mt-2 bg-black text-white rounded-full px-2 py-1"><button onClick={()=>menos(p.id)} className="w-6 h-6 bg-white text-black rounded-full font-black">-</button><span className="text-xs font-black">{enCarrito.qty}</span><button onClick={()=>mas(p.id)} className="w-6 h-6 bg-white text-black rounded-full font-black">+</button></div>
                 ):(
@@ -91,10 +95,23 @@ export default function CatalogoPublico(){
         })}
       </div>
 
+      {/* BOTON FLOTANTE CORREGIDO - SIN NUMERO */}
       {total>0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-[#0f2d52] text-white rounded-full px-4 py-2 text-xs font-black flex gap-3 items-center shadow-xl">
           <span>{total} pares | ${totalPrecio.toLocaleString()}</span>
-          <a href={`https://wa.me/573008901150?text=Pedido ${empresa?.nombre} ${total} pares`} target="_blank" className="bg-white text-black px-4 py-1 rounded-full">ENVIAR 3008901150</a>
+          <button onClick={()=>setShowCarrito(true)} className="bg-white text-black px-4 py-1 rounded-full">VER CARRITO</button>
+        </div>
+      )}
+
+      {/* MODAL CARRITO - AL DAR CLIC */}
+      {showCarrito && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex justify-end" onClick={()=>setShowCarrito(false)}>
+          <div className="bg-white w- h-full p-4 overflow-auto" onClick={e=>e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4"><h2 className="font-black">CARRITO ({total})</h2><button onClick={()=>setShowCarrito(false)} className="font-black">X</button></div>
+            {carrito.map(c=><div key={c.id} className="flex justify-between py-2 border-b text-xs"><span>{c.referencia} x{c.qty}</span><span>${(c.precio*c.qty).toLocaleString()}</span></div>)}
+            <div className="font-black text-sm mt-4">TOTAL: ${totalPrecio.toLocaleString()}</div>
+            <a href={`https://wa.me/573008901150?text=Hola%20MÁXIMA%20quiero%20pedir%20${total}%20pares%20$${totalPrecio}%20${carrito.map(c=>c.referencia+'x'+c.qty).join(',')}`} target="_blank" className="w-full bg-[#0E2A4D] text-white py-3 rounded-full font-black mt-4 block text-center">ENVIAR PEDIDO</a>
+          </div>
         </div>
       )}
     </div>
