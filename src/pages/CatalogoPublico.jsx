@@ -52,21 +52,20 @@ export default function CatalogoPublico(){
           {empresa?.logo_url? <img src={empresa.logo_url} className="h-7 w-7 bg-white rounded-full p-1 object-contain"/> : <div className="h-7 w-7 bg-white text-black rounded-full flex items-center justify-center font-black text-xs">S</div>}
           <span className="text-white font-black text-xs tracking-widest">STOCKOS</span>
         </div>
-        <div className="flex items-center gap-2 text-white">
-          <div className="text-right"><div className="font-black text-xs">MÁXIMA IMPORTADORES</div><div className="text- opacity-60">/ CATALOGO OFICIAL</div></div>
-        </div>
         <div className="flex items-center gap-2">
-          <div className="bg-[#2A3F5F] rounded-full flex items-center px-3 py-1.5"><input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="Buscar ref..." className="bg-transparent text-xs text-white placeholder-gray-400 outline-none w-28"/><span className="text-gray-400 text-xs">🔍</span></div>
-          {/* BOTON ARRIBA CORREGIDO - CON ICONO Y CLICKEABLE */}
-          <button onClick={()=>setShowCarrito(true)} className="bg-white rounded-full px-3 py-1.5 text-xs font-black flex items-center gap-1.5 hover:bg-gray-100"[STRIPPED 25 bytes]"14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 20a1 1 0 100-2 1 1 0 000 2zM20 20a1 1 0 100-2 1 1 0 000 2zM1 4h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>
-            CARRITO {total}
+          <div className="bg-[#2A3F5F] rounded-full flex items-center px-3 py-1.5">
+            <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="Buscar ref..." className="bg-transparent text-xs text-white placeholder-gray-400 outline-none w-28"/>
+            <span className="text-gray-400 text-xs">🔍</span>
+          </div>
+          <button onClick={()=>setShowCarrito(true)} className="bg-white rounded-full px-3 py-1.5 text-xs font-black flex items-center gap-1">
+            🛒 CARRITO {total}
           </button>
         </div>
       </div>
 
       <div className="bg-[#e9ecef] flex justify-between px-4 py-2 text- text-gray-600 font-bold">
         <span>20 REFERENCIAS • TALLA 35-40 • ENTREGA BOGOTA 24H</span>
-        <span className="opacity-50">STOCKOS / MÁXIMA • CATALOGO FINAL CON LOGOS OFICIALES</span>
+        <span className="opacity-50">STOCKOS / MÁXIMA</span>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4">
@@ -95,7 +94,6 @@ export default function CatalogoPublico(){
         })}
       </div>
 
-      {/* BOTON FLOTANTE CORREGIDO - SIN NUMERO */}
       {total>0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-[#0f2d52] text-white rounded-full px-4 py-2 text-xs font-black flex gap-3 items-center shadow-xl">
           <span>{total} pares | ${totalPrecio.toLocaleString()}</span>
@@ -103,14 +101,13 @@ export default function CatalogoPublico(){
         </div>
       )}
 
-      {/* MODAL CARRITO - AL DAR CLIC */}
       {showCarrito && (
         <div className="fixed inset-0 bg-black/50 z-50 flex justify-end" onClick={()=>setShowCarrito(false)}>
           <div className="bg-white w- h-full p-4 overflow-auto" onClick={e=>e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4"><h2 className="font-black">CARRITO ({total})</h2><button onClick={()=>setShowCarrito(false)} className="font-black">X</button></div>
             {carrito.map(c=><div key={c.id} className="flex justify-between py-2 border-b text-xs"><span>{c.referencia} x{c.qty}</span><span>${(c.precio*c.qty).toLocaleString()}</span></div>)}
             <div className="font-black text-sm mt-4">TOTAL: ${totalPrecio.toLocaleString()}</div>
-            <a href={`https://wa.me/573008901150?text=Hola%20MÁXIMA%20quiero%20pedir%20${total}%20pares%20$${totalPrecio}%20${carrito.map(c=>c.referencia+'x'+c.qty).join(',')}`} target="_blank" className="w-full bg-[#0E2A4D] text-white py-3 rounded-full font-black mt-4 block text-center">ENVIAR PEDIDO</a>
+            <a href={`https://wa.me/573008901150?text=Hola MAXIMA quiero pedir ${total} pares $${totalPrecio} ${carrito.map(c=>c.referencia+'x'+c.qty).join(',')}`} target="_blank" className="w-full bg-[#0E2A4D] text-white py-3 rounded-full font-black mt-4 block text-center">ENVIAR PEDIDO</a>
           </div>
         </div>
       )}
