@@ -8,7 +8,6 @@ export async function GET(){
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  // Login MBR
   const BASE = 'https://estock-mobile.demachine.co'
   const form = new URLSearchParams()
   form.append('instancia', 'MBR')
@@ -34,7 +33,7 @@ export async function GET(){
     const cols = [...m[1].matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map(c => c[1].replace(/<[^>]+>/g,'').trim())
     if (cols.length >= 2) {
       productos.push({
-        empresa_id: '676d535d-5045-41ac-9d7a-117095e75d4',
+        empresa_id: '676d535d-5045-41ac-9d7a-117095e75d49',
         referencia: cols[0],
         nombre: cols[1],
         stock: parseInt(cols[2]) || 0,
