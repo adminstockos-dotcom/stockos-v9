@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/Login.jsx'
 import SuperAdmin from './pages/SuperAdmin.jsx'
@@ -6,7 +6,17 @@ import EmpresaPanel from './pages/EmpresaPanel.jsx'
 import CatalogoPublico from './pages/CatalogoPublico.jsx'
 
 export default function App() {
-  const [session, setSession] = useState(null)
+  const [session, setSession] = useState(() => {
+    const saved = localStorage.getItem('stockos_session')
+    return saved? JSON.parse(saved) : null
+  })
+
+  useEffect(() => {
+    if (session) localStorage.setItem('stockos_session', JSON.stringify(session))
+    else localStorage.removeItem('stockos_session')
+  }, [session])
+
+  const logout = () => setSession(null)
 
   return (
     <Routes>
@@ -14,7 +24,7 @@ export default function App() {
       <Route
         path="/"
         element={
-          session ? (
+          session? (
             <Navigate to="/superadmin" replace />
           ) : (
             <Login onLogin={(u) => setSession(u)} />
@@ -22,35 +32,32 @@ export default function App() {
         }
       />
 
-      {/* SUPER ADMIN */}
+      {/* SUPER ADMIN - CON SESIÓN PERSISTENTE */}
       <Route
         path="/superadmin"
         element={
-          session ? (
-            <SuperAdmin user={session} onLogout={() => setSession(null)} />
+          session? (
+            <SuperAdmin user={session} onLogout={logout} />
           ) : (
             <Navigate to="/" replace />
           )
         }
       />
 
-      {/* PANEL PRIVADO POR EMPRESA */}
+      {/* PANEL PRIVADO POR EMPRESA - YA NO TE MANDA A LOGIN */}
       <Route
         path="/empresa/:id/panel"
         element={
-          session ? (
-            <EmpresaPanel user={session} onLogout={() => setSession(null)} />
+          session? (
+            <EmpresaPanel user={session} onLogout={logout} />
           ) : (
             <Navigate to="/" replace />
           )
         }
       />
 
-      {/* CATALOGO PUBLICO EN VIVO - SIN LOGIN - FIX 404 DEFINITIVO */}
-      {/* Link largo original */}
+      {/* CATALOGO PUBLICO - SIN LOGIN */}
       <Route path="/empresa/:id/catalogo" element={<CatalogoPublico />} />
-      
-      {/* Links cortos que quieres: primero MAXIMA luego stockos acortado */}
       <Route path="/m/:slug" element={<CatalogoPublico />} />
       <Route path="/c/:slug" element={<CatalogoPublico />} />
       <Route path="/maxima" element={<CatalogoPublico />} />
