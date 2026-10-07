@@ -6,7 +6,7 @@ export default function SuperAdmin({ user, onLogout }){
   const navigate = useNavigate()
   const [empresas,setEmpresas]=useState([])
   const [loading,setLoading]=useState(true)
-  const [showInfra,setShowInfra]=useState(true)
+  const [showInfra,setShowInfra]=useState(false)
   const [showModal,setShowModal]=useState(false)
   const [form,setForm]=useState({nombre:'', slug:'', encargado:'', telefono:'', logo_url:'', estado:'pendiente'})
   const [infra,setInfra]=useState([
@@ -45,22 +45,18 @@ export default function SuperAdmin({ user, onLogout }){
     setEmpresas(prev=>prev.map(e=>e.id===id?{...e,estado:nuevo}:e))
   }
 
-  // CORREGIDO: YA NO VA A LOGIN
-  const verPanel=(emp)=>{
-    // Esta es la ruta real de tu App.jsx
-    navigate(`/empresa/${emp.id}/panel`)
-  }
+  const verPanel=(emp)=> navigate(`/empresa/${emp.id}/panel`)
 
   return(
     <div className="min-h-screen bg-[#f8f9fa]">
-      <div className="h-14 bg-[#0E2A4D] flex items-center justify-between px-4">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 bg-white rounded-full flex items-center justify-center font-black text-[#0E2A4D]">S</div>
-          <span className="text-white font-black text-sm tracking-widest">STOCKOS</span>
+      {/* HEADER CON LOGO OFICIAL STOCKOS - S CON FLECHAS Y PUNTO VERDE */}
+      <div className="h-16 bg-[#0E2A4D] flex items-center justify-between px-4">
+        <div className="flex items-center gap-3">
+          <img src="/assets/stockos_logo_oficial_clean.png" alt="STOCKOS" className="h-10 w-auto object-contain" />
         </div>
-        <div className="flex items-center gap-2 text-white text-xs">
-          <span>Super Admin: {user?.email||''}</span>
-          <button onClick={onLogout} className="bg-white/20 px-2 py-1 rounded">Salir</button>
+        <div className="flex items-center gap-3 text-white text-xs">
+          <span className="hidden md:inline">Super Admin: {user?.email||''}</span>
+          <button onClick={onLogout} className="bg-white/20 px-3 py-1 rounded-full">Salir</button>
         </div>
       </div>
 
@@ -82,11 +78,11 @@ export default function SuperAdmin({ user, onLogout }){
                 const logoReal = emp.logo_url || emp.logo || emp.imagen_url
                 return(
                 <div key={emp.id} className="grid grid-cols-6 p-3 border-t items-center text-xs">
-                  <div>{logoReal? <img src={logoReal} className="h-9 w-9 rounded-full object-cover border"/> : <div className="h-9 w-9 bg-black text-white rounded-full flex items-center justify-center font-black">{emp.nombre?.[0]}</div>}</div>
-                  <div><div className="font-black">{emp.nombre}</div><div className="text- text-gray-500">{emp.slug}</div></div>
+                  <div>{logoReal? <img src={logoReal} className="h-9 w-9 rounded-full object-cover border"/> : <div className="h-9 w-9 bg-black text-white rounded-full flex items-center justify-center font-black">{emp.nombre?.[0]?.toUpperCase()}</div>}</div>
+                  <div><div className="font-black text-">{emp.nombre}</div><div className="text- text-gray-500">{emp.slug}</div></div>
                   <div className="text- truncate">{emp.encargado||'—'}<div className="text- text-gray-400">{emp.telefono||''}</div></div>
                   <div>
-                    <select value={emp.estado||'pendiente'} onChange={e=>cambiarEstado(emp.id,e.target.value)} className={`px-2 py-1 rounded-full text- font-black border ${emp.estado==='aprobada'?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-700'}`}>
+                    <select value={emp.estado||'pendiente'} onChange={e=>cambiarEstado(emp.id,e.target.value)} className={`px-2 py-1 rounded-full text- font-black border ${emp.estado==='aprobada'?'bg-green-100 text-green-700 border-green-200':'bg-yellow-100 text-yellow-700 border-yellow-200'}`}>
                       <option value="pendiente">pendiente</option>
                       <option value="aprobada">aprobada</option>
                       <option value="suspendida">suspendida</option>
@@ -111,7 +107,7 @@ export default function SuperAdmin({ user, onLogout }){
           {showInfra && (
             <div className="border-t">
               <div className="grid grid-cols-7 text- font-bold text-gray-500 p-3 bg-gray-50"><span>SERVICIO</span><span>TIPO</span><span>REGIÓN</span><span>ESTADO</span><span>UPTIME</span><span>CPU</span><span>MEMORIA</span></div>
-              {infra.map(s=><div key={s.id} className="grid grid-cols-7 p-3 border-t text-xs"><span>{s.servicio}</span><span>{s.tipo}</span><span>{s.region}</span><span>{s.estado}</span><span>{s.uptime}</span><span>{s.cpu}%</span><span>{s.memoria}%</span></div>)}
+              {infra.map(s=><div key={s.id} className="grid grid-cols-7 p-3 border-t text-xs"><span className="text- font-bold">{s.servicio}</span><span className="text- bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{s.tipo}</span><span>{s.region}</span><span>{s.estado}</span><span>{s.uptime}</span><span>{s.cpu}%</span><span>{s.memoria}%</span></div>)}
             </div>
           )}
         </div>
