@@ -10,8 +10,8 @@ export default function CatalogoPublico(){
   const [carrito,setCarrito]=useState([])
   const [loading,setLoading]=useState(true)
   const [showCarrito,setShowCarrito]=useState(false)
-  const [pago,setPago]=useState('【entity-NEQUI¦canonical_name=NEQUI】')
-  const [subPago,setSubPago]=useState('【entity-NEQUI¦canonical_name=NEQUI】')
+  const [pago,setPago]=useState('NEQUI')
+  const [subPago,setSubPago]=useState('NEQUI')
 
   useEffect(()=>{
     const load=async()=>{
@@ -52,8 +52,11 @@ export default function CatalogoPublico(){
     <div className="min-h-screen bg-[#f8f9fa]">
       <div className="h-14 bg-[#0E2A4D] flex items-center justify-between px-4">
         <div className="flex items-center gap-2">
-          {empresa?.logo_url? <img src={empresa.logo_url} className="h-7 w-7 bg-white rounded-full p-1 object-contain"/> : <div className="h-7 w-7 bg-white text-black rounded-full flex items-center justify-center font-black text-xs">S</div>}
-          <span className="text-white font-black text-xs tracking-widest">STOCKOS</span>
+          {(empresa?.logo_url || empresa?.logo || empresa?.imagen_url)?
+            <img src={empresa.logo_url || empresa.logo || empresa.imagen_url} className="h-7 w-7 bg-white rounded-full p-1 object-contain"/> :
+            <div className="h-7 w-7 bg-white text-black rounded-full flex items-center justify-center font-black text-xs">{empresa?.nombre?.[0] || 'S'}</div>
+          }
+          <span className="text-white font-black text-xs tracking-widest">{empresa?.nombre || 'STOCKOS'}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="bg-[#2A3F5F] rounded-full flex items-center px-3 py-1.5">
@@ -109,7 +112,7 @@ export default function CatalogoPublico(){
               <h3 className="font-black text-xs mb-2">MÉTODO DE PAGO</h3>
               <div className="space-y-2 text-xs">
                 <label className="flex justify-between items-center border p-2 rounded cursor-pointer hover:bg-gray-50">
-                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='【entity-NEQUI¦canonical_name=NEQUI】'} onChange={()=>setPago('【entity-NEQUI¦canonical_name=NEQUI】')}/><span className="bg-[#FF0A54] text-white font-black px-2 py-0.5 rounded text-">【entity-NEQUI¦canonical_name=NEQUI】</span></span>
+                  <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='【entity-NEQUI¦canonical_name=NEQUI】'} onChange={()=>setPago('【entity-NEQUI¦canonical_name=NEQUI】')}/><span className="bg-[#FF0A54] text-white font-black px-2 py-0.5 rounded text-">【entity-NEQUI¦canonical_name=【entity-NEQUI¦canonical_name=NEQUI】】</span></span>
                   <button type="button" onClick={(e)=>copy(e,'3186411851')} className="bg-black text-white px-3 py-1 rounded text-">COPIAR</button>
                 </label>
                 <label className="flex justify-between items-center border p-2 rounded cursor-pointer hover:bg-gray-50">
@@ -124,7 +127,6 @@ export default function CatalogoPublico(){
                   <span className="flex items-center gap-2"><input type="radio" name="pago" checked={pago==='CONTRAENTREGA'} disabled={total>2} onChange={()=>setPago('CONTRAENTREGA')}/><span className="bg-green-600 text-white font-black px-2 py-0.5 rounded text-">CONTRAENTREGA</span><span className="text- font-bold">Hasta 2 pares solo primera compra. Pago anticipado envio.</span></span>
                   {pago==='CONTRAENTREGA' && (
                     <div className="mt-2 space-y-2">
-                      <div className="bg-white border border-green-200 p-2 rounded text-">Automático por API Nequi. Solo primer pedido, max 2 pares. Pago anticipado de envío.</div>
                       <div className="text- font-black">¿CÓMO PAGAS AL RECIBIR?</div>
                       <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='NEQUI'} onChange={()=>setSubPago('NEQUI')}/><span className="bg-[#FF0A54] text-white px-1.5 py-0.5 rounded text- font-black">NEQUI</span> <span className="text-">Nequi contraentrega</span></label>
                       <label className="flex items-center gap-2 bg-white border p-2 rounded"><input type="radio" name="subpago" checked={subPago==='BANCOLOMBIA'} onChange={()=>setSubPago('BANCOLOMBIA')}/><span className="bg-[#F8C200] text-black px-1.5 py-0.5 rounded text- font-black">BANCOLOMBIA</span> <span className="text-">Bancolombia contraentrega</span></label>
@@ -157,10 +159,9 @@ export default function CatalogoPublico(){
               })
               if(error){alert('Error: '+error.message);return}
               window.open(`https://wa.me/573008901150?text=${encodeURIComponent(`Hola MAXIMA soy ${nombre} ${ciudad} pedido ${total} pares $${totalPrecio} pago ${metodoFinal} dir ${dir}`)}`,'_blank')
-              alert(esAutomatico? 'Pedido creado. API Nequi lo aprobará automático' : 'Pedido creado. Carlos lo aprueba en App MÁXIMA')
+              alert('Pedido creado')
               setCarrito([]); setShowCarrito(false)
             }} className="w-full bg-[#0E2A4D] text-white py-3 rounded-full font-black mt-4 text-xs">ENVIAR PEDIDO</button>
-            <p className="text- text-gray-400 mt-2 text-center">NEQUI y CONTRAENTREGA = Automático API | BANCOLOMBIA y BRE-B = Manual Carlos</p>
           </div>
         </div>
       )}
