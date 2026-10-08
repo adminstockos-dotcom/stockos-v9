@@ -4,7 +4,6 @@ import { supabase } from '../../lib/supabase.js'
 export default function TabCatalogo({ empresa }) {
   const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
   const empresaNombre = empresa?.nombre || 'MAXIMA IMPORTADORES'
-  // maxima = primer nombre limpio sin tilde
   const slug = empresaNombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(' ')[0] || 'maxima'
 
   const [proveedores, setProveedores] = useState([])
@@ -13,7 +12,6 @@ export default function TabCatalogo({ empresa }) {
   const [loadingListado, setLoadingListado] = useState(false)
   const [abiertos, setAbiertos] = useState({})
 
-  // LINKS COMO LOS QUIERES
   const urlCatalogoLargo = `https://stockos-v9.vercel.app/empresa/${empresaId}/catalogo`
   const urlCatalogoCorto = `https://${slug}.stockos.vercel.app`
   const urlCatalogoFallback = `https://stockos-v9.vercel.app/m/${slug}`
@@ -31,14 +29,20 @@ export default function TabCatalogo({ empresa }) {
   const cargarListado = async () => {
     try { setLoadingListado(true); const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo',{ascending:false}).limit(1000); if(data) setListado(data) } catch{} finally{ setLoadingListado(false) }
   }
+
+  // FIX: Ya no usa n8n.tu-dominio.com, ahora usa tu API propia /api/scan-mbr
   const escanearAhora = async () => {
-    if(!confirm('¿Disparar escaneo manual ahora? (n8n lo hace auto 8:30 AM y 2:30 PM)')) return
+    if(!confirm('¿Disparar escaneo manual ahora?')) return
     try{
       setLoadingListado(true)
-      await fetch(`https://n8n.tu-dominio.com/webhook/stockos/escanear/${empresaId}`, { method:'POST' }).catch(()=>{})
-      alert('Escaneo disparado. En 1-2 min se llena el listado.')
-      setTimeout(cargarListado, 3000)
-    }catch{ alert('Escaneo solicitado') } finally{ setLoadingListado(false) }
+      const provNombre = proveedores[0]?.nombre || 'MBR'
+      const r = await fetch(`/api/scan-mbr?proveedor=${encodeURIComponent(provNombre)}&empresa_id=${empresaId}&t=${Date.now()}`)
+      const j = await r.json()
+      console.log('SCAN MBR:', j)
+      if(!j.ok) throw new Error(j.error || 'Error en escaneo')
+      alert(`OK ${j.guardados}/${j.total} guardados - ${j.proveedor}`)
+      await cargarListado()
+    }catch(e){ alert('Error: '+ e.message) } finally{ setLoadingListado(false) }
   }
 
   useEffect(()=>{ localStorage.setItem(`stockos_proveedores_links_${empresaId}`, JSON.stringify(proveedores)) },[proveedores, empresaId])
