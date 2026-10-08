@@ -1,22 +1,9 @@
 {
   "crons": [
-    {
-      "path": "/api/scan-mbr?proveedor=MBR",
-      "schedule": "30 8 * * *"
-    },
-    {
-      "path": "/api/scan-mbr?proveedor=MBR",
-      "schedule": "30 14 * * *"
-    }
+    { "path": "/api/scan-mbr?proveedor=MBR", "schedule": "30 8 * * *" },
+    { "path": "/api/scan-mbr?proveedor=MBR", "schedule": "30 14 * * *" }
   ],
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
