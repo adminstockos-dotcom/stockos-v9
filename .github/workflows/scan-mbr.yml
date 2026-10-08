@@ -10,13 +10,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm install --no-package-lock @supabase/supabase-js playwright ws
+
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
-      - name: Install deps
-        run: npm i @supabase/supabase-js playwright
+
       - name: Run MBR scanner
         run: node scripts/scan-mbr.mjs
         env:
