@@ -1,53 +1,81 @@
-// V9.6 - NAVEGACION REAL + API SNIFF
+// V9.7 AUDITADO - SNIFF REAL DESDE Ver todos
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
+
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const MBR_PASS = process.env.MBR_PASSWORD;
+const PASS = process.env.MBR_PASSWORD;
 const EMPRESA_ID = '676d535d-5045-41ac-9d7a-117095e75d4';
 const PROV = 'MBR - MÁXIMA';
-async function run(){
-  console.log('[MBR] V9.6');
-  const browser = await chromium.launch({headless:true});
-  const page = await browser.newPage();
-  page.on('response', async r=>{
-    const u=r.url(); if(u.includes('api')||u.includes('stock')||u.includes('exist')){
-      try{ const j=await r.json(); if(Array.isArray(j)&&j.length>5) console.log(`[API] ${u} -> ${j.length}`); }catch{}
+
+async function run() {
+  console.log('[MBR] V9.7 AUDITADO');
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+
+  // SNIFF API REAL
+  page.on('request', r => {
+    const u = r.url();
+    if (u.includes('api') || u.includes('demachine')) console.log('[MBR] REQ', r.method(), u);
+  });
+  page.on('response', async r => {
+    const u = r.url();
+    if (u.includes('api')) {
+      try {
+        const txt = await r.text();
+        if (txt.length > 20 && txt.length < 15000) console.log(`[MBR] RESP ${u.slice(-100)} => ${txt.slice(0, 1500)}`);
+      } catch {}
     }
   });
-  try{
-    await page.goto('https://estock-mobile.demachine.co/',{waitUntil:'networkidle'});
-    await page.locator('input').nth(0).fill('MBR');
-    await page.locator('input').nth(1).fill('CARLSO ROJAS');
-    await page.locator('input').nth(2).fill(MBR_PASS);
-    await page.locator('input').nth(2).press('Enter');
-    await page.waitForTimeout(2000);
-    const btn=page.locator('button').filter({hasText:/ingresar|entrar/i}).first();
-    if(await btn.count()>0) await btn.click({force:true}).catch(()=>{});
-    await page.waitForFunction(()=>!location.href.includes('/login'),{timeout:30000});
-    await page.waitForLoadState('networkidle'); await page.waitForTimeout(5000);
-    console.log('[MBR] HOME URL:',page.url());
-    const textos=await page.evaluate(()=>document.body.innerText.slice(0,3000));
-    console.log('[MBR] TEXTO HOME:',textos);
-    const clicks=await page.evaluate(()=>Array.from(document.querySelectorAll('button,a,[role="button"],.q-item')).map(e=>e.innerText?.trim()).filter(t=>t&&t.length<30).slice(0,50));
-    console.log('[MBR] BOTONES:',clicks);
 
-    // Probar rutas conocidas
-    for(const p of ['/consulta','/existencias','/stock','/inventario','/productos']){
-      console.log(`[MBR] probando ${p}`);
-      await page.goto(`https://estock-mobile.demachine.co${p}`,{waitUntil:'networkidle'}).catch(()=>{});
-      await page.waitForTimeout(3000);
-      const c=await page.locator('tbody tr').count().catch(()=>0);
-      console.log(`[MBR] ${p} rows=${c}`);
-      if(c>0) break;
+  await page.goto('https://estock-mobile.demachine.co/', { waitUntil: 'networkidle', timeout: 60000 });
+  await page.locator('input').first().waitFor({ state: 'visible', timeout: 15000 });
+
+  const inputs = page.locator('input');
+  await inputs.nth(0).fill('MBR');
+  await inputs.nth(1).fill('CARLSO ROJAS');
+  await inputs.nth(2).fill(PASS);
+  await page.waitForTimeout(500);
+  await inputs.nth(2).press('Enter');
+  await page.waitForTimeout(3000);
+
+  const btn = page.locator('button:has-text("Ingresar")').first();
+  if (await btn.count()) await btn.click().catch(()=>{});
+
+  await page.waitForURL('**/home', { timeout: 30000 });
+  await page.waitForTimeout(4000);
+  console.log('[MBR] HOME OK:', page.url());
+  console.log('[MBR] HOME TEXTO:', (await page.innerText('body')).slice(0, 2000));
+
+  // PASO CLAVE QUE FALTABA
+  console.log('[MBR] Click Ver todos...');
+  const verTodos = page.locator('text=Ver todos').first();
+  await verTodos.waitFor({ timeout: 10000 });
+  await verTodos.click();
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(8000);
+
+  console.log('[MBR] URL POST CLICK:', page.url());
+  const body = await page.innerText('body');
+  console.log('[MBR] BODY Ver todos:', body.slice(0, 5000));
+
+  // Extraer del DOM real (tus logs muestran formato: 【entity-ADIDAS¦canonical_name=ADIDAS】... BODEGA - $ 85.000)
+  const raw = await page.evaluate(() => document.body.innerText);
+  const lines = raw.split('\n');
+  console.log(`[MBR] Lineas totales: ${lines.length}`);
+
+  // Intenta guardar lo que vea
+  const items = [];
+  for (let i=0;i<lines.length;i++) {
+    if (lines[i].includes('BODEGA') && lines[i].includes('$')) {
+      const ref = lines[i-1] || 'REF';
+      const priceMatch = lines[i].match(/\$ ([\d\.]+)/);
+      items.push({ ref, price: priceMatch? priceMatch[1] : '0', raw: lines[i] });
     }
+  }
+  console.log(`[MBR] Items detectados: ${items.length}`, items.slice(0,3));
 
-    await page.waitForSelector('tbody tr',{timeout:60000});
-    const rows=await page.evaluate(()=>Array.from(document.querySelectorAll('tbody tr')).map(tr=>Array.from(tr.querySelectorAll('td')).map(td=>td.innerText.trim())).filter(r=>r[0]));
-    console.log(`[MBR] totalRows: ${rows.length}`, rows.slice(0,2));
-    const toInsert=rows.map(r=>({empresa_id:EMPRESA_ID,proveedor_nombre:PROV,referencia:r[0],talla:r[1]||'UNICA',precio:parseInt((r[2]||'0').replace(/\D/g,''))||0,stock_proveedor:parseInt((r[3]||r[2]||'0').replace(/\D/g,''))||0,fecha_escaneo:new Date().toISOString()}));
-    await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id',EMPRESA_ID).eq('proveedor_nombre',PROV);
-    const {error}=await supabase.from('listado_maestro_proveedor').insert(toInsert); if(error) throw error;
-    console.log(`[MBR] OK ${toInsert.length}`);
-  }finally{await browser.close();}
+  await browser.close();
+  console.log('[MBR] FIN SNIFF - Revisa los RESP arriba para crear V9.8 final');
 }
-run().catch(e=>{console.error('[MBR] FATAL',e.message); process.exit(1);});
+
+run().catch(e => { console.error('[MBR] FATAL', e); process.exit(1); });
