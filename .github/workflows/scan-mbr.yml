@@ -1,0 +1,25 @@
+name: Scan MBR Real
+on:
+  schedule:
+    - cron: '30 13 * * *' # 8:30 AM Colombia
+    - cron: '30 19 * * *' # 2:30 PM Colombia
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Install deps
+        run: npm i @supabase/supabase-js playwright
+      - name: Run MBR scanner
+        run: node scripts/scan-mbr.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MBR_PASSWORD: ${{ secrets.MBR_PASSWORD }}
