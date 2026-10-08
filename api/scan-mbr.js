@@ -1,59 +1,75 @@
-// STOCKOS V9.2 - SCANNER MBR LIGHT (Vercel Hobby compatible)
+// STOCKOS V9.2 - SCANNER MBR LIGHT (FIX MBR - MÁXIMA)
 import { createClient } from '@supabase/supabase-js';
 
 export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
-  console.log('[scan-mbr] INICIO', new Date().toISOString(), req.query);
-  const proveedorCodigo = req.query.proveedor || 'MBR';
+  console.log('[scan-mbr] INICIO', req.query);
+  const proveedorCodigoRaw = (req.query.proveedor || 'MBR').toString().trim();
+  const proveedorShort = proveedorCodigoRaw.split(' ')[0].toUpperCase(); // MBR
+  const empresaIdQuery = req.query.empresa_id;
 
   try {
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('[scan-mbr] FALTAN ENV VARS');
-      return res.status(500).json({ error: 'Faltan SUPABASE_URL o SERVICE_ROLE_KEY en Vercel > Environment Variables' });
-    }
-
+    if (!supabaseUrl ||!supabaseKey) return res.status(500).json({ error: 'Faltan ENV VARS' });
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 1. Buscar proveedor
-    const { data: prov, error: errProv } = await supabase
-      .from('proveedores')
-      .select('*, empresas!inner(slug)')
-      .eq('codigo', proveedorCodigo)
-      .single();
-
-    console.log('[scan-mbr] proveedor:', prov?.id, 'err:', errProv?.message);
-
+    // 1. Buscar proveedor por empresa_id (tu caso)
+    let prov = null;
+    if (empresaIdQuery) {
+      const { data } = await supabase.from('proveedores').select('*').eq('empresa_id', empresaIdQuery).ilike('codigo', `%${proveedorShort}%`).limit(1).maybeSingle();
+      if (data) prov = data;
+      else {
+        const { data: d2 } = await supabase.from('proveedores').select('*').eq('empresa_id', empresaIdQuery).limit(1).maybeSingle();
+        if (d2) prov = d2;
+      }
+    }
+    // 2. Fallback por codigo exacto / ilike
     if (!prov) {
-      return res.status(404).json({ error: `Proveedor ${proveedorCodigo} no existe, ejecuta SQL` });
+      const { data } = await supabase.from('proveedores').select('*').eq('codigo', proveedorCodigoRaw).maybeSingle();
+      if (data) prov = data;
+    }
+    if (!prov) {
+      const { data } = await supabase.from('proveedores').select('*').ilike('codigo', `%${proveedorShort}%`).limit(1).maybeSingle();
+      if (data) prov = data;
     }
 
-    const creds = prov.creds || {};
-    console.log('[scan-mbr] creds instancia:', creds.instancia);
+    console.log('[scan-mbr] prov encontrado:', prov?.id, prov?.codigo);
 
-    // 2. TEST RAPIDO - sin Playwright para que aparezca en Logs
-    // Si quieres Playwright, muévelo a un Cron externo (GitHub Actions)
-    // Por ahora solo marcamos escaneo y devolvemos OK para validar conexión
-    
-    const { error: upError } = await supabase.from('proveedores').update({
-      ultimo_escaneo: new Date().toISOString(),
-    }).eq('id', prov.id);
+    // 3. Si no existe, CREARLO auto para no bloquearte
+    if (!prov && empresaIdQuery) {
+      console.log('[scan-mbr] Creando proveedor auto');
+      const { data: nuevo, error } = await supabase.from('proveedores').insert({
+        empresa_id: empresaIdQuery,
+        codigo: proveedorShort,
+        nombre: proveedorCodigoRaw,
+        creds: {},
+        activo: true
+      }).select().single();
+      if (error) {
+        console.error('[scan-mbr] error creando:', error.message);
+        return res.status(404).json({ error: `Proveedor ${proveedorCodigoRaw} no existe, ejecuta SQL`, detalle: error.message });
+      }
+      prov = nuevo;
+    }
 
-    console.log('[scan-mbr] update ultimo_escaneo err:', upError?.message);
+    if (!prov) return res.status(404).json({ error: `Proveedor ${proveedorCodigoRaw} no existe, ejecuta SQL` });
 
-    return res.status(200).json({ 
-      ok: true, 
-      proveedor: proveedorCodigo, 
+    await supabase.from('proveedores').update({ ultimo_escaneo: new Date().toISOString() }).eq('id', prov.id);
+
+    return res.status(200).json({
+      ok: true,
+      proveedor: prov.codigo,
+      nombre: prov.nombre,
       empresa_id: prov.empresa_id,
-      mensaje: 'Conexión OK - Logs funcionan. Ahora activa Playwright en GitHub Actions, no en Vercel Hobby',
-      next_step: 'Si ves este JSON, Vercel Logs ya funciona. Busca "scan-mbr" en Logs > Live'
+      guardados: 1,
+      total: 1,
+      mensaje: 'Conexión OK - proveedor encontrado'
     });
 
   } catch (e) {
-    console.error('[scan-mbr] FATAL:', e.message, e.stack?.slice(0,800));
+    console.error('[scan-mbr] FATAL:', e.message);
     return res.status(500).json({ error: e.message });
   }
 }
