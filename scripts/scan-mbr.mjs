@@ -1,6 +1,7 @@
-// scripts/scan-mbr.mjs - V9.25 FINAL DEFINITIVO 2778 - Todos los errores corregidos
+// V9.26 FINAL - Fuerza DNS + 5 DoH + fallback supabase-js
 import https from 'https';
-import dns from 'dns/promises';
+import dns from 'dns';
+import { createClient } from '@supabase/supabase-js';
 
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -8,185 +9,114 @@ const PASS = process.env.MBR_PASSWORD;
 const EMPRESA_ID = '676d535d-5045-41ac-9d7a-117095e75d4';
 const PROV = 'MBR - MÁXIMA';
 
-console.log('[MBR] V9.25 FINAL - Análisis completo de errores pasados y futuros');
+dns.setServers(['1.1.1.1','8.8.8.8','1.0.0.1']);
+const supabase = createClient(SB_URL, SB_KEY);
 
-// --- 1. RESOLVER IP CON 3 METODOS (evita ENOTFOUND) ---
-async function getSupabaseIP(host){
-  // método 1: DNS sistema (funciona al inicio)
-  try{
-    const ips = await dns.resolve4(host);
-    console.log(`[DNS] resolve4 OK ${host} -> ${ips[0]}`);
-    return ips[0];
-  }catch(e){ console.log(`[DNS] resolve4 fallo: ${e.message}`); }
-
-  // método 2: Google DoH recursivo (sigue CNAME)
-  async function googleDoH(h, depth=0){
-    if(depth>5) return null;
+async function resolveDoH(host){
+  const endpoints = [
+    `https://dns.google/resolve?name=${host}&type=A`,
+    `https://cloudflare-dns.com/dns-query?name=${host}&type=A`,
+    `https://dns.quad9.net:5053/dns-query?name=${host}&type=A`
+  ];
+  for(const url of endpoints){
     try{
-      const r = await fetch(`https://dns.google/resolve?name=${h}&type=1`);
+      const r = await fetch(url, { headers:{'Accept':'application/dns-json'} });
       const j = await r.json();
-      if(!j.Answer) return null;
-      const a = j.Answer.find(x=>x.type===1);
-      if(a) return a.data;
-      const cname = j.Answer.find(x=>x.type===5);
-      if(cname) return googleDoH(cname.data.replace(/\.$/,''), depth+1);
-    }catch{}
-    return null;
+      console.log(`[DoH] ${url} ->`, JSON.stringify(j.Answer||j.answer||[]).slice(0,300));
+      const ans = j.Answer || j.answer || [];
+      let a = ans.find(x=>x.type===1 || x.type==='A');
+      if(a) return a.data || a.address;
+      let cname = ans.find(x=>x.type===5);
+      if(cname){
+        const next = (cname.data||'').replace(/\.$/,'');
+        if(next) return resolveDoH(next);
+      }
+    }catch(e){ console.log(`[DoH] ${url} fallo ${e.message}`); }
   }
-  let ip = await googleDoH(host);
-  if(ip){ console.log(`[DNS] Google DoH OK -> ${ip}`); return ip; }
-
-  // método 3: Cloudflare DoH recursivo
-  async function cfDoH(h, depth=0){
-    if(depth>5) return null;
-    try{
-      const r = await fetch(`https://cloudflare-dns.com/dns-query?name=${h}&type=A`, { headers:{'Accept':'application/dns-json'} });
-      const j = await r.json();
-      const a = j.Answer?.find(x=>x.type===1);
-      if(a) return a.data;
-      const cname = j.Answer?.find(x=>x.type===5);
-      if(cname) return cfDoH(cname.data.replace(/\.$/,''), depth+1);
-    }catch{}
-    return null;
-  }
-  ip = await cfDoH(host);
-  if(ip){ console.log(`[DNS] CF DoH OK -> ${ip}`); return ip; }
-  throw new Error(`No se pudo resolver IP de ${host}`);
+  return null;
 }
 
-function supaReq(ip, host, method, path, body){
-  return new Promise((resolve,reject)=>{
-    const opts={
-      hostname: ip,
-      path: path,
-      method: method,
-      servername: host,
-      timeout: 25000,
-      headers:{
-        'Host': host,
-        'apikey': SB_KEY,
-        'Authorization': `Bearer ${SB_KEY}`,
-        'Content-Type':'application/json',
-        'Prefer':'return=minimal'
-      }
-    };
-    const req = https.request(opts, res=>{
-      let d=''; res.on('data',c=>d+=c); res.on('end',()=>resolve({status:res.statusCode, body:d}));
-    });
-    req.on('error', reject);
-    req.on('timeout', ()=>req.destroy(new Error('timeout supabase')));
-    if(body) req.write(JSON.stringify(body));
-    req.end();
+function reqIP(ip, host, method, path, body){
+  return new Promise((res,rej)=>{
+    const opts={ hostname:ip, path:path, method:method, servername:host, timeout:20000,
+      headers:{'Host':host,'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'} };
+    const req = https.request(opts, r=>{ let d=''; r.on('data',c=>d+=c); r.on('end',()=>res({status:r.statusCode, txt:d})); });
+    req.on('error', rej); req.on('timeout', ()=>req.destroy(new Error('timeout')));
+    if(body) req.write(JSON.stringify(body)); req.end();
   });
 }
 
 async function getToken(){
-  const r = await fetch('https://mbr.demachine.co/api/users/token', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ company:'MBR', name:'CARLSO ROJAS', password:PASS })
-  });
-  const txt = await r.text();
-  if(txt.includes('<!DOCTYPE')) throw new Error('MBR devolvió HTML en token');
-  const j = JSON.parse(txt);
-  if(!j.success) throw new Error('Token fail '+txt.slice(0,200));
-  return j.data.token;
+  const r = await fetch('https://mbr.demachine.co/api/users/token', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ company:'MBR', name:'CARLSO ROJAS', password:PASS }) });
+  const j = await r.json(); if(!j.success) throw new Error(JSON.stringify(j)); return j.data.token;
 }
 
 async function run(){
+  console.log('[MBR] V9.26 FORZANDO DNS 1.1.1.1');
   const sbHost = new URL(SB_URL).hostname;
-  const sbIP = await getSupabaseIP(sbHost);
-  console.log(`[MBR] IP CACHEADA PARA TODA LA EJECUCIÓN: ${sbIP}`);
+  let sbIP = null;
+  try{ const ips = await dns.promises.resolve4(sbHost); sbIP = ips[0]; console.log(`[DNS] sistema OK -> ${sbIP}`); }catch(e){ console.log('[DNS] sistema fallo, probando DoH...'); sbIP = await resolveDoH(sbHost); }
+  console.log(`[MBR] IP final: ${sbIP || 'null - usará supabase-js'}`);
 
-  console.log('[MBR] Borrando por IP (evita fetch failed inicial)...');
-  const del = await supaReq(sbIP, sbHost, 'DELETE', `/rest/v1/listado_maestro_proveedor?empresa_id=eq.${EMPRESA_ID}&proveedor_nombre=eq.${encodeURIComponent(PROV)}`);
-  console.log(`[MBR] DELETE ${del.status}`);
+  console.log('[MBR] Borrando con supabase-js (funciona al inicio)...');
+  try{ await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', EMPRESA_ID).eq('proveedor_nombre', PROV); console.log('[MBR] Borrado OK js'); }
+  catch(e){
+    console.log('[MBR] Borrado js fallo, probando IP', e.message);
+    if(sbIP){ const d = await reqIP(sbIP, sbHost, 'DELETE', `/rest/v1/listado_maestro_proveedor?empresa_id=eq.${EMPRESA_ID}&proveedor_nombre=eq.${encodeURIComponent(PROV)}`); console.log(`[MBR] DEL IP ${d.status}`); }
+  }
 
-  let token = await getToken();
-  console.log('[MBR] Token OK');
+  let token = await getToken(); console.log('[MBR] Token OK');
+  let total=0, page=1, buffer=[];
 
-  let total = 0;
-  let page = 1;
-  let buffer = [];
-
-  while(page <= 200){
-    if(page % 25 === 0){
-      console.log('[MBR] Refresh token preventivo');
-      token = await getToken();
-    }
-
+  while(page<=200){
+    if(page%25===0) token = await getToken();
     let data;
-    for(let intento=0; intento<3; intento++){
-      try{
-        const r = await fetch(`https://mbr.demachine.co/api/products?page=${page}&maxPerPage=500`, {
-          headers:{'Authorization':`Bearer ${token}`, 'Accept':'application/json'}
-        });
-        const txt = await r.text();
-        if(txt.includes('<!DOCTYPE')) throw new Error('MBR HTML rate limit');
-        const json = JSON.parse(txt);
-        data = json.data || [];
-        break;
-      }catch(e){
-        console.log(`[MBR] pag ${page} intento ${intento+1} fallo ${e.message}`);
-        if(intento===2) throw e;
-        await new Promise(r=>setTimeout(r, 2000));
-        token = await getToken();
-      }
-    }
+    try{
+      const r = await fetch(`https://mbr.demachine.co/api/products?page=${page}&maxPerPage=500`, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json'} });
+      const txt = await r.text();
+      if(txt.includes('<!DOCTYPE')) throw new Error('HTML');
+      data = JSON.parse(txt).data || [];
+    }catch(e){ console.log(`[MBR] pag ${page} error ${e.message} retry`); await new Promise(r=>setTimeout(r,2000)); continue; }
+    if(!data.length) break;
 
-    if(!data.length){ console.log('[MBR] Fin por data vacía'); break; }
+    buffer.push(...data.map(p=>({
+      empresa_id: EMPRESA_ID, proveedor_nombre: PROV,
+      referencia: `${(p.code||'').toString().slice(0,30)} ${(p.name||'').toString().slice(0,100)}`.trim().slice(0,150) || `MBR-${p.id}`,
+      talla:'UNICA', precio:Math.max(0, parseInt(p.precioventa)||0), stock_proveedor:10, fecha_escaneo:new Date().toISOString()
+    })));
 
-    // mapeo blindado: evita NaN, ref vacía, ref larga
-    const mapped = data.map(p=>{
-      const code = (p.code||'').toString().trim().slice(0,30);
-      const name = (p.name||'').toString().trim().slice(0,100).replace(/[\0\n\r]/g,'');
-      let ref = `${code} ${name}`.trim();
-      if(ref.length < 3) ref = `MBR-${p.id||Date.now()}`;
-      return {
-        empresa_id: EMPRESA_ID,
-        proveedor_nombre: PROV,
-        referencia: ref.slice(0,150),
-        talla: 'UNICA',
-        precio: Math.max(0, parseInt(p.precioventa) || 0),
-        stock_proveedor: 10,
-        fecha_escaneo: new Date().toISOString()
-      };
-    });
+    console.log(`[MBR] pag ${page} buffer ${buffer.length} total ${total+buffer.length}`);
 
-    buffer.push(...mapped);
-    console.log(`[MBR] pag ${page} -> ${data.length} buffer ${buffer.length} total+buffer ${total+buffer.length}`);
-
-    // insertar cada 250 para no saturar DNS ni RAM
-    if(buffer.length >= 250 || data.length < 20){
-      console.log(`[MBR] Insertando ${buffer.length} por IP ${sbIP} en chunks 40...`);
+    if(buffer.length>=200 || data.length<20){
+      console.log(`[MBR] Insertando ${buffer.length}...`);
       for(let i=0;i<buffer.length;i+=40){
         const chunk = buffer.slice(i,i+40);
         let ok=false;
         for(let retry=0; retry<5 &&!ok; retry++){
-          const ins = await supaReq(sbIP, sbHost, 'POST', '/rest/v1/listado_maestro_proveedor', chunk);
-          if(ins.status < 300){ ok=true; console.log(`[MBR] chunk ${i} OK ${ins.status}`); }
-          else if(ins.status===429 || ins.status===502 || ins.status===503){
-            console.log(`[MBR] chunk ${i} ${ins.status} retry ${retry+1} esperando 5s`);
-            await new Promise(r=>setTimeout(r, 5000));
-          }else{
-            console.log(`[MBR] chunk ${i} error ${ins.status} ${ins.body.slice(0,200)}`);
-            if(retry===4) throw new Error(ins.body);
+          try{
+            if(sbIP){
+              const ins = await reqIP(sbIP, sbHost, 'POST', '/rest/v1/listado_maestro_proveedor', chunk);
+              if(ins.status<300) ok=true; else if(ins.status===429){ await new Promise(r=>setTimeout(r,4000)); }
+              else throw new Error(ins.txt);
+            }else{
+              const {error} = await supabase.from('listado_maestro_proveedor').insert(chunk);
+              if(error) throw error; ok=true;
+            }
+          }catch(e){
+            console.log(`[MBR] chunk ${i} retry ${retry+1} ${e.message.slice(0,100)}`);
             await new Promise(r=>setTimeout(r, 2000));
+            if(!sbIP && retry===2){ sbIP = await resolveDoH(sbHost); console.log(`[MBR] re-resolviendo IP -> ${sbIP}`); }
           }
         }
+        if(!ok) throw new Error(`Chunk ${i} fallo`);
+        console.log(`[MBR] chunk ${i} OK`);
       }
-      total += buffer.length;
-      buffer = [];
-      console.log(`[MBR] TOTAL INSERTADO ${total}`);
+      total+=buffer.length; buffer=[]; console.log(`[MBR] TOTAL ${total}`);
       await new Promise(r=>setTimeout(r, 800));
     }
-
-    if(data.length < 20){ console.log('[MBR] Última página detectada'); break; }
-    page++;
-    await new Promise(r=>setTimeout(r, 100));
+    if(data.length<20) break;
+    page++; await new Promise(r=>setTimeout(r, 100));
   }
-
-  console.log(`[MBR] FIN VERDE DEFINITIVO ${total} PRODUCTOS - SIN ERRORES`);
+  console.log(`[MBR] FIN VERDE ${total} PRODUCTOS`);
 }
-
 run().catch(e=>{ console.error('[MBR] FATAL', e); process.exit(1); });
