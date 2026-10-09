@@ -1,84 +1,77 @@
-// V9.13 FIX RED - https nativo IPv4 para Supabase
-import https from 'https';
+// V9.8 VERDE + TODOS LOS PRODUCTOS
+import { createClient } from '@supabase/supabase-js';
 
-const URL = process.env.SUPABASE_URL;
-const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const PASS = process.env.MBR_PASSWORD;
 const EMPRESA_ID = '676d535d-5045-41ac-9d7a-117095e75d4';
 const PROV = 'MBR - MÁXIMA';
 
-function supaRequest(method, path, body=null){
-  return new Promise((resolve,reject)=>{
-    const u = new URL(URL);
-    const opts = {
-      hostname: u.hostname,
-      path: path,
-      method: method,
-      family: 4, // fuerza IPv4 - FIX fetch failed
-      headers:{
-        'apikey': KEY,
-        'Authorization': `Bearer ${KEY}`,
-        'Content-Type':'application/json',
-        'Prefer':'return=minimal'
-      }
-    };
-    const req = https.request(opts, res=>{
-      let data='';
-      res.on('data', c=>data+=c);
-      res.on('end', ()=> resolve({status:res.statusCode, txt:data}));
-    });
-    req.on('error', reject);
-    if(body) req.write(JSON.stringify(body));
-    req.end();
+async function getToken() {
+  const res = await fetch('https://mbr.demachine.co/api/users/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      company: 'MBR',
+      name: 'CARLSO ROJAS',
+      password: PASS
+    })
   });
-}
-
-async function getToken(){
-  const r = await fetch('https://mbr.demachine.co/api/users/token',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Accept':'application/json'},
-    body: JSON.stringify({company:'MBR', name:'CARLSO ROJAS', password:PASS})
-  });
-  const j = await r.json();
-  if(!j.success) throw new Error('Token '+JSON.stringify(j));
+  const j = await res.json();
+  if (!j.success) throw new Error('Token fail: ' + JSON.stringify(j));
   return j.data.token;
 }
 
-async function run(){
-  console.log('[MBR] V9.13 FIX RED IPv4');
+async function run() {
+  console.log('[MBR] V9.16 VERDE BASE V9.8 + PAGINADO');
   const token = await getToken();
-  console.log('[MBR] Token OK');
+  console.log('[MBR] Token OK:', token.slice(0,20)+'...');
 
-  let all=[];
-  const res = await fetch(`https://mbr.demachine.co/api/products?page=1&maxPerPage=500`,{
-    headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json'}
-  });
-  const j = JSON.parse(await res.text());
-  all = j.data || [];
-  console.log(`[MBR] TOTAL ${all.length}`);
+  let all = [];
+  let page = 1;
+  while (true) {
+    const url = `https://mbr.demachine.co/api/products?page=${page}&maxPerPage=500`;
+    console.log(`[MBR] Fetch pag ${page}`);
+    const r = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+    });
+    const txt = await r.text();
+    if (txt.startsWith('<!DOCTYPE')) break;
+    const json = JSON.parse(txt);
+    const data = json.data || [];
+    console.log(`[MBR] pag ${page} -> ${data.length} total ${all.length + data.length}`);
+    if (data.length === 0) break;
+    all.push(...data);
+    if (data.length < 20) break;
+    page++;
+    if (page > 100) break;
+  }
 
-  console.log('[MBR] Borrando viejo IPv4...');
-  const del = await supaRequest('DELETE', `/rest/v1/listado_maestro_proveedor?empresa_id=eq.${EMPRESA_ID}&proveedor_nombre=eq.${encodeURIComponent(PROV)}`);
-  console.log('[MBR] DEL', del.status, del.txt.slice(0,100));
+  console.log(`[MBR] TOTAL CATALOGO ${all.length}`);
+  
+  // MISMO BORRADO QUE V9.8 VERDE
+  await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', EMPRESA_ID).eq('proveedor_nombre', PROV);
 
-  const toInsert = all.map(pr=>({
+  const toInsert = all.map(p => ({
     empresa_id: EMPRESA_ID,
     proveedor_nombre: PROV,
-    referencia: `${pr.code||''} ${pr.name}`.trim().slice(0,150),
+    referencia: `${p.code || ''} ${p.name || p.product || ''}`.trim().slice(0,150),
     talla: 'UNICA',
-    precio: Number(pr.precioventa)||0,
+    precio: parseInt(p.precioventa || p.price) || 0,
     stock_proveedor: 10,
     fecha_escaneo: new Date().toISOString()
-  }));
+  })).filter(x=>x.referencia);
 
-  console.log(`[MBR] Insertando ${toInsert.length} IPv4...`);
-  // chunk de 50 para no saturar
-  for(let i=0;i<toInsert.length;i+=50){
-    const chunk = toInsert.slice(i,i+50);
-    const ins = await supaRequest('POST', '/rest/v1/listado_maestro_proveedor', chunk);
-    console.log(`[MBR] chunk ${i} -> ${ins.status} ${ins.txt.slice(0,100)}`);
-    if(ins.status>=400) throw new Error('Insert fail '+ins.txt);
+  console.log(`[MBR] A insertar ${toInsert.length}`);
+
+  // MISMO INSERT QUE V9.8 VERDE pero en bloques de 50 para no romper
+  for (let i = 0; i < toInsert.length; i += 50) {
+    const chunk = toInsert.slice(i, i + 50);
+    const { error } = await supabase.from('listado_maestro_proveedor').insert(chunk);
+    if (error) throw error;
+    console.log(`[MBR] chunk ${i}-${i+chunk.length} OK`);
   }
-  console.log(`[MBR] FIN OK ${toInsert.length}`);
+
+  console.log(`[MBR] OK VERDE ${toInsert.length} PRODUCTOS`);
 }
-run().catch(e=>{ console.error('[MBR] FATAL', e.message); process.exit(1); });
+
+run().catch(e=>{ console.error('[MBR] FATAL', e); process.exit(1); });
