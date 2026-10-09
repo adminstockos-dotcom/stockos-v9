@@ -1,5 +1,18 @@
 {
-  "name": "stockos-v7.8",
+  "name": "stockos-v9",
+  "private": true,
   "version": "7.8.0",
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.8"
+  }
 }
