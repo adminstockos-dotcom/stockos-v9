@@ -1,4 +1,4 @@
-// V9.18 VERDE 2000 + FIX DNS ENOTFOUND - BASE V9.8
+// V9.19 BASE V9.8 + DoH bypass ENOTFOUND - 2000 productos
 import { createClient } from '@supabase/supabase-js';
 import https from 'https';
 
@@ -10,15 +10,25 @@ const PROV = 'MBR - MÁXIMA';
 
 const supabase = createClient(SB_URL, SB_KEY);
 
-function supaDeleteInsertIPv4(method, path, body){
+// Resuelve IP por DoH de Cloudflare, no usa DNS del runner
+async function resolveIP(host){
+  const r = await fetch(`https://cloudflare-dns.com/dns-query?name=${host}&type=A`, {
+    headers:{ 'Accept':'application/dns-json' }
+  });
+  const j = await r.json();
+  return j.Answer?.[0]?.data;
+}
+
+function supaRequestIP(ip, host, method, path, body){
   return new Promise((resolve,reject)=>{
-    const u = new URL(SB_URL);
     const opts={
-      hostname: u.hostname,
+      hostname: ip,
       path: path,
       method: method,
+      servername: host, // SNI
       family: 4,
       headers:{
+        'Host': host,
         'apikey': SB_KEY,
         'Authorization': `Bearer ${SB_KEY}`,
         'Content-Type':'application/json',
@@ -41,41 +51,37 @@ async function getToken() {
     body: JSON.stringify({ company: 'MBR', name: 'CARLSO ROJAS', password: PASS })
   });
   const j = await res.json();
-  if (!j.success) throw new Error('Token fail: ' + JSON.stringify(j));
+  if (!j.success) throw new Error(JSON.stringify(j));
   return j.data.token;
 }
 
 async function run() {
-  console.log('[MBR] V9.18 BASE V9.8 + DNS FIX');
+  console.log('[MBR] V9.19 VERDE 2000 DoH');
   const token = await getToken();
   console.log('[MBR] Token OK');
 
   let all = [];
-  let page = 1;
-  while (true) {
-    const url = `https://mbr.demachine.co/api/products?page=${page}&maxPerPage=500`;
-    const r = await fetch(url, { headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' } });
+  for(let page=1; page<=100; page++){
+    const r = await fetch(`https://mbr.demachine.co/api/products?page=${page}&maxPerPage=500`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept':'application/json' }
+    });
     const json = JSON.parse(await r.text());
     const data = json.data || [];
-    if (data.length === 0) break;
+    if(!data.length) break;
     all.push(...data);
     console.log(`[MBR] pag ${page} -> ${data.length} total ${all.length}`);
-    if (data.length < 20 || page >= 100) break;
-    page++;
+    if(data.length < 20) break;
   }
-  console.log(`[MBR] TOTAL ${all.length} - esperando 15s para recuperar DNS...`);
-  await new Promise(r=>setTimeout(r, 15000));
+  console.log(`[MBR] TOTAL ${all.length}`);
 
-  console.log('[MBR] Borrando...');
-  try{
-    const del = await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', EMPRESA_ID).eq('proveedor_nombre', PROV);
-    if(del.error) throw del.error;
-    console.log('[MBR] Borrado OK via supabase-js');
-  }catch(e){
-    console.log('[MBR] Borrado via js fallo, intentando IPv4 directo:', e.message);
-    const res = await supaDeleteInsertIPv4('DELETE', `/rest/v1/listado_maestro_proveedor?empresa_id=eq.${EMPRESA_ID}&proveedor_nombre=eq.${encodeURIComponent(PROV)}`);
-    console.log('[MBR] Borrado IPv4', res.status);
-  }
+  const sbHost = new URL(SB_URL).hostname;
+  console.log(`[MBR] Resolviendo ${sbHost} por DoH...`);
+  const sbIP = await resolveIP(sbHost);
+  console.log(`[MBR] IP ${sbHost} -> ${sbIP}`);
+
+  console.log('[MBR] Borrando via IP...');
+  const del = await supaRequestIP(sbIP, sbHost, 'DELETE', `/rest/v1/listado_maestro_proveedor?empresa_id=eq.${EMPRESA_ID}&proveedor_nombre=eq.${encodeURIComponent(PROV)}`);
+  console.log('[MBR] DEL', del.status);
 
   const toInsert = all.map(p => ({
     empresa_id: EMPRESA_ID,
@@ -87,22 +93,12 @@ async function run() {
     fecha_escaneo: new Date().toISOString()
   }));
 
-  console.log(`[MBR] Insertando ${toInsert.length} con fallback IPv4...`);
-  for (let i = 0; i < toInsert.length; i += 50) {
-    const chunk = toInsert.slice(i, i + 50);
-    try{
-      const { error } = await supabase.from('listado_maestro_proveedor').insert(chunk);
-      if(error) throw error;
-      console.log(`[MBR] chunk ${i} OK js`);
-    }catch(e){
-      console.log(`[MBR] chunk ${i} js fallo ${e.message}, probando IPv4...`);
-      const res = await supaDeleteInsertIPv4('POST', '/rest/v1/listado_maestro_proveedor', chunk);
-      console.log(`[MBR] chunk ${i} IPv4 ${res.status}`);
-      if(res.status>=400) throw new Error(res.txt);
-    }
-    await new Promise(r=>setTimeout(r, 300));
+  for(let i=0;i<toInsert.length;i+=50){
+    const chunk = toInsert.slice(i,i+50);
+    const ins = await supaRequestIP(sbIP, sbHost, 'POST', '/rest/v1/listado_maestro_proveedor', chunk);
+    console.log(`[MBR] chunk ${i} -> ${ins.status}`);
+    if(ins.status>=400) throw new Error(ins.txt);
   }
   console.log(`[MBR] FIN VERDE ${toInsert.length}`);
 }
-
 run().catch(e=>{ console.error('[MBR] FATAL', e); process.exit(1); });
