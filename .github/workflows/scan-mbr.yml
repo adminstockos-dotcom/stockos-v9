@@ -1,12 +1,26 @@
 name: Scan MBR
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+
 jobs:
   scan:
     timeout-minutes: 20
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MBR_PASSWORD: ${{ secrets.MBR_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - run: npm ci || npm i
-      - run: node scripts/scan-mbr.mjs
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: npm ci || npm install
+
+      - name: Run MBR Scan V9.30 DIOS
+        run: node scripts/scan-mbr.mjs
