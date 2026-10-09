@@ -1,4 +1,4 @@
-// V9.9 FINAL CATALOGO REAL MBR
+// V9.10 FIX - Headers correctos
 import { createClient } from '@supabase/supabase-js';
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const PASS = process.env.MBR_PASSWORD;
@@ -12,46 +12,53 @@ async function getToken(){
     body: JSON.stringify({company:'MBR', name:'CARLSO ROJAS', password:PASS})
   });
   const j = await r.json();
+  if(!j.success) throw new Error('Token fail '+JSON.stringify(j));
   return j.data.token;
 }
 
 async function run(){
-  console.log('[MBR] V9.9 CATALOGO REAL');
+  console.log('[MBR] V9.10 FIX CATALOGO');
   const token = await getToken();
+  console.log('[MBR] Token OK');
   
   let page=1, all=[];
   while(true){
     const url = `https://mbr.demachine.co/api/products?page=${page}&maxPerPage=500`;
     console.log(`[MBR] Fetch ${url}`);
-    const res = await fetch(url, { headers:{'Authorization':`Bearer ${token}`}});
-    const json = await res.json();
+    const res = await fetch(url, { 
+      headers:{
+        'Authorization':`Bearer ${token}`,
+        'Accept':'application/json',
+        'Content-Type':'application/json'
+      }
+    });
+    const txt = await res.text();
+    if(txt.startsWith('<!DOCTYPE')){
+      throw new Error('Sesion expirada, HTML recibido: ' + txt.slice(0,200));
+    }
+    const json = JSON.parse(txt);
     const data = json.data || [];
     if(!data.length) break;
     all.push(...data);
-    console.log(`[MBR] page ${page} -> ${data.length} (total ${all.length})`);
+    console.log(`[MBR] page ${page} -> ${data.length} total ${all.length}`);
     if(data.length < 500) break;
     page++;
+    if(page>10) break;
   }
 
-  console.log(`[MBR] TOTAL PRODUCTOS CATALOGO: ${all.length}`);
-  console.log('[MBR] Sample:', all.slice(0,2));
-
-  // Guardar en Supabase
+  console.log(`[MBR] TOTAL ${all.length}`);
   await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', EMPRESA_ID).eq('proveedor_nombre', PROV);
-
   const toInsert = all.map(p=>({
     empresa_id: EMPRESA_ID,
     proveedor_nombre: PROV,
     referencia: (p.code ? `${p.code} - ` : '') + (p.name || `ID-${p.id}`),
     talla: 'UNICA',
-    precio: p.precioventa || p.preciopormayor || 0,
-    stock_proveedor: 10, // el catálogo general no expone stock por API, se asume disponible
+    precio: p.precioventa || 0,
+    stock_proveedor: 10,
     fecha_escaneo: new Date().toISOString()
   }));
-
   const { error } = await supabase.from('listado_maestro_proveedor').insert(toInsert);
   if(error) throw error;
-  console.log(`[MBR] OK INSERTADOS ${toInsert.length} EN SUPABASE`);
+  console.log(`[MBR] OK ${toInsert.length} GUARDADOS`);
 }
-
-run().catch(e=>{ console.error('[MBR] FATAL', e); process.exit(1); });
+run().catch(e=>{ console.error('[MBR] FATAL', e.message); process.exit(1); });
