@@ -9,9 +9,12 @@ jobs:
         with:
           node-version: 20
       - name: Scan MBR
-        run: node scripts/discover6-mbr.mjs
+        run: node scripts/discover7-mbr.mjs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           EMPRESA_ID: ${{ secrets.EMPRESA_ID }}
+          MBR_USER: ${{ secrets.MBR_USER }}
+          MBR_PASS: ${{ secrets.MBR_PASS }}
+          MBR_INSTANCE: ${{ secrets.MBR_INSTANCE }}
           NODE_TLS_REJECT_UNAUTHORIZED: 0
