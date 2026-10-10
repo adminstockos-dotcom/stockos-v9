@@ -4,6 +4,7 @@ import Login from './pages/Login.jsx'
 import SuperAdmin from './pages/SuperAdmin.jsx'
 import EmpresaPanel from './pages/EmpresaPanel.jsx'
 import CatalogoPublico from './pages/CatalogoPublico.jsx'
+import Maxima from './pages/Maxima.jsx'
 
 export default function App() {
   const [session, setSession] = useState(() => {
@@ -44,7 +45,7 @@ export default function App() {
         }
       />
 
-      {/* PANEL PRIVADO POR EMPRESA - YA NO TE MANDA A LOGIN */}
+      {/* PANEL PRIVADO POR EMPRESA */}
       <Route
         path="/empresa/:id/panel"
         element={
@@ -56,11 +57,22 @@ export default function App() {
         }
       />
 
+      {/* MAXIMA - PANEL PRIVADO CON BOTON ESCANEAR AHORA MBR */}
+      <Route
+        path="/maxima"
+        element={
+          session? (
+            <Maxima />
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
+      />
+
       {/* CATALOGO PUBLICO - SIN LOGIN */}
       <Route path="/empresa/:id/catalogo" element={<CatalogoPublico />} />
       <Route path="/m/:slug" element={<CatalogoPublico />} />
       <Route path="/c/:slug" element={<CatalogoPublico />} />
-      <Route path="/maxima" element={<CatalogoPublico />} />
       <Route path="/maxima/catalogo" element={<CatalogoPublico />} />
 
       {/* FALLBACK */}
