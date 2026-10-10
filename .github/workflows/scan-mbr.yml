@@ -23,7 +23,7 @@ jobs:
           echo "$RESP" | head -c 500
           echo ""
 
-          TOKEN=$(echo "$RESP" | jq -r '.token // .access_token // .data.token // .data.access_token // empty')
+          TOKEN=$(echo "$RESP" | jq -r '.data.token // .token // .access_token // empty')
 
           if [ -z "$TOKEN" ]; then
             echo "ERROR: no token"
@@ -32,13 +32,22 @@ jobs:
 
           echo "Token OK: ${TOKEN:0:20}..."
 
+          echo "== ME =="
           curl -s -k https://mbr.demachine.co/api/users/me \
-            -H "Authorization: Bearer $TOKEN" | jq . > me.json
+            -H "Authorization: Bearer $TOKEN" -H "Origin: https://estock-mobile.demachine.co" > me.txt
+          cat me.txt | head -c 1500
+          echo ""
 
-          curl -s -k "https://mbr.demachine.co/api/getClientProduct?maxPerPage=1000" \
-            -H "Authorization: Bearer $TOKEN" | jq . > inventario.json
+          echo "== PRODUCTOS =="
+          curl -s -k "https://mbr.demachine.co/api/getClientProduct" \
+            -H "Authorization: Bearer $TOKEN" -H "Origin: https://estock-mobile.demachine.co" > prod.txt
+          cat prod.txt | head -c 1500
+          echo ""
 
-          echo "Guardado inventario.json"
-          ls -lh *.json
-          echo "Total:"
-          jq 'if type=="array" then length else .data // . | length end' inventario.json || wc -c inventario.json
+          echo "== INDEXME =="
+          curl -s -k "https://mbr.demachine.co/api/indexMe?page=1&maxPerPage=5" \
+            -H "Authorization: Bearer $TOKEN" -H "Origin: https://estock-mobile.demachine.co" > index.txt
+          cat index.txt | head -c 1500
+          echo ""
+
+          ls -lh *.txt
