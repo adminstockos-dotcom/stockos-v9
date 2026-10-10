@@ -9,7 +9,7 @@ jobs:
         with:
           node-version: 20
       - name: Scan MBR
-        run: node scripts/discover4-mbr.mjs
+        run: node scripts/discover5-mbr.mjs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
