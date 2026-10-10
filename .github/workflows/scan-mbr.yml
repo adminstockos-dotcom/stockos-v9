@@ -15,29 +15,40 @@ jobs:
           set -e
           sudo apt-get update -qq && sudo apt-get install -y -qq jq > /dev/null
 
-          echo "Login..."
-          RESP=$(curl -s -k -X POST https://mbr.demachine.co/api/users/token \
+          echo "Login en PAYMASTER2..."
+          RESP=$(curl -s -k -X POST https://paymaster2.demachine.co/api/users/token \
             -H "Content-Type: application/json" \
             -d "{\"name\":\"CARLSO ROJAS\",\"password\":\"$MBR_PASS\",\"instance\":\"mbr\"}")
 
-          TOKEN=$(echo "$RESP" | jq -r '.data.token // .token')
+          echo "$RESP" | head -c 800
+          echo ""
+
+          TOKEN=$(echo "$RESP" | jq -r '.data.token // .token // empty')
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "Fallback login MBR..."
+            RESP=$(curl -s -k -X POST https://mbr.demachine.co/api/users/token \
+              -H "Content-Type: application/json" \
+              -d "{\"name\":\"CARLSO ROJAS\",\"password\":\"$MBR_PASS\",\"instance\":\"mbr\"}")
+            TOKEN=$(echo "$RESP" | jq -r '.data.token // .token // empty')
+          fi
 
           echo "Token: ${TOKEN:0:20}..."
 
-          echo "== ME =="
-          curl -s -k https://mbr.demachine.co/api/users/me \
-            -H "authorization: $TOKEN" \
-            -H "Origin: https://estock-mobile.demachine.co" | head -c 500
+          echo "== ME paymaster2 =="
+          curl -s -k https://paymaster2.demachine.co/api/users/me \
+            -H "authorization: Bearer $TOKEN" \
+            -H "Origin: https://estock-mobile.demachine.co" | head -c 800
           echo ""
 
           echo "== getClientProduct en PAYMASTER2 =="
           curl -s -k -X POST https://paymaster2.demachine.co/api/getClientProduct \
-            -H "authorization: $TOKEN" \
+            -H "authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
             -H "Origin: https://estock-mobile.demachine.co" \
             -d '{}' > prod.json
 
-          head -c 2000 prod.json
+          head -c 3000 prod.json
           echo ""
           ls -lh prod.json
           wc -c prod.json
