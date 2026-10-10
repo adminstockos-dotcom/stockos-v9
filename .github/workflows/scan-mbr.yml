@@ -1,20 +1,44 @@
-name: Scan MAXIMA - Listado Maestro
-on: workflow_dispatch
+name: scan-mbr
+on:
+  workflow_dispatch:
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Scan MBR
-        run: node scripts/discover7-mbr.mjs
+
+      - name: Scan MBR real
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          EMPRESA_ID: ${{ secrets.EMPRESA_ID }}
-          MBR_USER: ${{ secrets.MBR_USER }}
           MBR_PASS: ${{ secrets.MBR_PASS }}
-          MBR_INSTANCE: ${{ secrets.MBR_INSTANCE }}
-          NODE_TLS_REJECT_UNAUTHORIZED: 0
+        run: |
+          set -e
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq > /dev/null
+
+          echo "Login a mbr.demachine.co..."
+          RESP=$(curl -s -k -X POST https://mbr.demachine.co/api/users/token \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"CARLSO ROJAS\",\"password\":\"$MBR_PASS\",\"instance\":\"mbr\"}")
+
+          echo "$RESP" | head -c 500
+          echo ""
+
+          TOKEN=$(echo "$RESP" | jq -r '.token // .access_token // .data.token // .data.access_token // empty')
+
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: no token"
+            exit 1
+          fi
+
+          echo "Token OK: ${TOKEN:0:20}..."
+
+          curl -s -k https://mbr.demachine.co/api/users/me \
+            -H "Authorization: Bearer $TOKEN" | jq . > me.json
+
+          curl -s -k "https://mbr.demachine.co/api/getClientProduct?maxPerPage=1000" \
+            -H "Authorization: Bearer $TOKEN" | jq . > inventario.json
+
+          echo "Guardado inventario.json"
+          ls -lh *.json
+          echo "Total:"
+          jq 'if type=="array" then length else .data // . | length end' inventario.json || wc -c inventario.json
