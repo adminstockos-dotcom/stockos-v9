@@ -1,48 +1,34 @@
 name: scan-mbr
 on:
   workflow_dispatch:
-
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Scan MBR real
+      - name: Scan real con payload
         env:
           MBR_PASS: ${{ secrets.MBR_PASS }}
         run: |
           set -e
           sudo apt-get update -qq && sudo apt-get install -y -qq jq > /dev/null
-
-          echo "Login en MBR..."
-          RESP=$(curl -s -k -X POST https://mbr.demachine.co/api/users/token \
-            -H "Content-Type: application/json" \
-            -d "{\"name\":\"CARLSO ROJAS\",\"password\":\"$MBR_PASS\",\"instance\":\"mbr\"}")
-
+          RESP=$(curl -s -k -X POST https://mbr.demachine.co/api/users/token -H "Content-Type: application/json" -d "{\"name\":\"CARLSO ROJAS\",\"password\":\"$MBR_PASS\",\"instance\":\"mbr\"}")
           TOKEN=$(echo "$RESP" | jq -r '.data.token')
-          echo "Token: ${TOKEN:0:20}..."
-
-          echo "== ME MBR =="
-          curl -s -k https://mbr.demachine.co/api/users/me \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Origin: https://estock-mobile.demachine.co" | head -c 500
+          ME=$(curl -s -k https://mbr.demachine.co/api/users/me -H "Authorization: Bearer $TOKEN")
+          echo "$ME" | head -c 800
           echo ""
+          PAT=$(echo "$ME" | jq -r '.data.me.patinadore_id')
+          ID=$(echo "$ME" | jq -r '.data.me.id')
+          echo "patinadore_id=$PAT id=$ID"
 
-          echo "== ME PAYMASTER2 =="
-          curl -s -k https://paymaster2.demachine.co/api/users/me \
-            -H "authorization: Bearer $TOKEN" \
-            -H "Origin: https://estock-mobile.demachine.co" | head -c 800
+          for BODY in '{}' "{\"patinadore_id\":$PAT}" "{\"client_id\":$PAT}" "{\"id\":$ID}" "{\"user_id\":$ID}" "{\"patinadore_id\":$PAT,\"client\":true}"; do
+            echo "== BODY $BODY =="
+            curl -s -k -X POST https://paymaster2.demachine.co/api/getClientProduct -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -H "Origin: https://estock-mobile.demachine.co" -d "$BODY" | head -c 1000
+            echo ""
+          done
+
+          echo "== indexMe MBR =="
+          curl -s -k "https://mbr.demachine.co/api/indexMe?page=1&maxPerPage=5" -H "Authorization: Bearer $TOKEN" | head -c 1500
           echo ""
-
-          echo "== getClientProduct POST paymaster2 =="
-          curl -s -k -X POST https://paymaster2.demachine.co/api/getClientProduct \
-            -H "authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -H "Origin: https://estock-mobile.demachine.co" \
-            -d '{}' > prod.json
-
-          cat prod.json | head -c 4000
-          echo ""
-          ls -lh prod.json
-          jq 'if type=="array" then length else . end' prod.json 2>&1 | head
+          echo "== indexMe PAYMASTER2 =="
+          curl -s -k "https://paymaster2.demachine.co/api/indexMe?page=1&maxPerPage=5" -H "Authorization: Bearer $TOKEN" -H "Origin: https://estock-mobile.demachine.co" | head -c 1500
