@@ -1,71 +1,88 @@
 #!/usr/bin/env node
-// DEBUG FIX - log completo
-import { createClient } from '@supabase/supabase-js'
+// ULTRA FIX - sin dependencias npm, solo fetch nativo
+// Trae $65000 / $90000 real desde MBR
+const SUPA_URL = process.env.SUPABASE_URL
+const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+let BEARER = (process.env.MBR_BEARER_TOKEN||'').trim()
+BEARER = BEARER.replace(/^Bearer\s+/i,'').replace(/^["']|["']$/g,'').trim()
 
-console.log('--- DEBUG ENV ---')
-console.log('SUPABASE_URL exists?', !!process.env.SUPABASE_URL)
-console.log('SERVICE_KEY exists?', !!process.env.SUPABASE_SERVICE_ROLE_KEY)
-console.log('MBR_BEARER_TOKEN exists?', !!process.env.MBR_BEARER_TOKEN, 'len', (process.env.MBR_BEARER_TOKEN||'').length)
+console.log('=== DEBUG ===')
+console.log('SUPA_URL:', SUPA_URL ? SUPA_URL.slice(0,30)+'...' : 'FALTA')
+console.log('SERVICE_KEY len:', (SUPA_KEY||'').length)
+console.log('BEARER len:', BEARER.length, 'preview:', BEARER.slice(0,25))
 
-let bearer = (process.env.MBR_BEARER_TOKEN||'').trim().replace(/^Bearer\s+/i,'').replace(/["'\s]/g,'')
-if(!bearer || bearer.length < 20){
-  console.error('❌ MBR_BEARER_TOKEN vacio o corto - revisa GitHub Secrets')
-  process.exit(1)
-}
-console.log('🔑 Bearer OK len', bearer.length, 'start', bearer.slice(0,20))
+if(!SUPA_URL || !SUPA_KEY){ console.error('Falta SUPABASE_URL o SERVICE_ROLE'); process.exit(1) }
+if(!BEARER || BEARER.length < 20){ console.error('MBR_BEARER_TOKEN vacio - revisa Secrets'); process.exit(1) }
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {auth:{persistSession:false}})
-
-async function fetchPage(page){
+async function fetchMBR(page){
   const url = `https://mbr.demachine.co/api/requests/indexMe?page=${page}&maxPerPage=100`
-  console.log(`🔍 Fetch ${url}`)
-  const res = await fetch(url, { headers: { 'Authorization': `Bearer ${bearer}`, 'Accept': 'application/json' } })
-  const txt = await res.text()
-  console.log(`Status ${res.status} body ${txt.slice(0,500)}`)
-  if(!res.ok) throw new Error(`MBR API ${res.status}: ${txt.slice(0,500)}`)
-  return JSON.parse(txt).data
+  const r = await fetch(url, { headers: { 'Authorization': `Bearer ${BEARER}`, 'Accept': 'application/json' } })
+  const txt = await r.text()
+  if(!r.ok){
+    console.error(`MBR ERROR ${r.status}: ${txt.slice(0,800)}`)
+    if(r.status===401) console.error('TOKEN EXPIRADO: ve a mbr.demachine.co > F12 > Network > indexMe > Authorization y copia de nuevo a GitHub Secrets MBR_BEARER_TOKEN')
+    throw new Error(`MBR ${r.status}`)
+  }
+  const j = JSON.parse(txt)
+  return j.data
+}
+
+async function upsertSupa(table, rows, onConflict){
+  const url = `${SUPA_URL}/rest/v1/${table}?on_conflict=${onConflict}`
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPA_KEY,
+      'Authorization': `Bearer ${SUPA_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify(rows)
+  })
+  const txt = await r.text()
+  if(!r.ok){
+    console.error(`SUPA ${table} ERROR ${r.status}: ${txt.slice(0,800)}`)
+    throw new Error(`Supabase ${table} ${r.status}`)
+  }
+  return true
 }
 
 async function main(){
   let page=1, pages=1, total=0
   do{
-    const data = await fetchPage(page)
+    const data = await fetchMBR(page)
     pages = data.info?.pages || 1
     const results = data.results || []
-    console.log(`Page ${page}/${pages} ${results.length} items`)
+    console.log(`\n📄 Page ${page}/${pages} - ${results.length} items - total MBR ${data.info?.count}`)
     if(results.length){
-      const upserts = results.map(r=>({
-        referencia: r.product?.trim(),
+      console.log(`Ejemplo: ${results[0].product} -> $${results[0].price} ${results[0].size}`)
+      const rows = results.map(r=>({
+        referencia: (r.product||'').trim(),
         nombre: r.product,
-        precio: parseInt(r.price,10),
+        precio: parseInt(r.price,10)||0,
         stock: parseInt(r.quantity,10)||1,
         talla: r.size,
         color: r.color,
         marca: r.brand,
         codigo: r.code,
         product_id: r.product_id,
-        mbr_id: r.id,
+        mbr_id: String(r.id),
         imagen: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null,
         imagen_original: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null,
         imagen_sin_fondo: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null,
         updated_at: new Date().toISOString()
-      }))
-      // Upsert con manejo de error detallado
-      const { error } = await supabase.from('productos_maestro').upsert(upserts, {onConflict:'referencia'})
-      if(error){
-        console.error('productos_maestro error', error.message, error.details)
-        // intenta solo los campos basicos
-        const basic = upserts.map(u=>({ referencia: u.referencia, nombre: u.nombre, precio: u.precio, stock: u.stock, updated_at: u.updated_at }))
-        const { error: e2 } = await supabase.from('productos_maestro').upsert(basic, {onConflict:'referencia'})
-        if(e2){ console.error('basic also fail', e2); throw e2 }
-        else console.log('✅ basic upsert ok')
-      } else {
-        console.log(`✅ upsert ${results[0].product} $${results[0].price}`)
+      })).filter(x=>x.referencia)
+
+      // divide en lotes de 50 para no saturar
+      for(let i=0;i<rows.length;i+=50){
+        const chunk = rows.slice(i,i+50)
+        await upsertSupa('productos_maestro', chunk, 'referencia')
+        console.log(`✅ Upsert ${chunk.length} -> ${chunk[0].referencia} $${chunk[0].precio}`)
       }
-      total+=results.length
+      total+=rows.length
     }
     page++
   }while(page<=pages)
-  console.log(`🎉 LISTO ${total} productos`)
+  console.log(`\n🎉 FINAL OK - ${total} productos sincronizados con precio real MBR`)
 }
-main().catch(e=>{ console.error('💥', e); process.exit(1) })
+main().catch(e=>{ console.error('💥 FATAL', e); process.exit(1) })
