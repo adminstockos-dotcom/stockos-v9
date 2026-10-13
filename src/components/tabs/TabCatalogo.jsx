@@ -87,7 +87,10 @@ export default function TabCatalogo({ empresa }) {
     if(refsToApply.length===0) return alert('Selecciona al menos 1');
     const nuevos={...preciosVenta};
     refsToApply.forEach(ref=>{ const item=visibleItems.find(v=>v.referencia===ref)||listado.find(l=>l.referencia===ref); const costo=getPrecioCosto(item||{referencia:ref}); let venta=costo; if(cfg.tipo==='COP') venta=costo+val; else if(cfg.tipo==='PORC') venta=Math.round(costo*(1+val/100)); else if(cfg.tipo==='FIJO') venta=val; nuevos[ref]=venta; });
-    setPreciosVenta(nuevos); alert(`Precio venta actualizado a ${refsToApply.length} productos`);
+    setPreciosVenta(nuevos);
+    // Guardar en Supabase para que el catálogo público use el precio venta
+    try{ refsToApply.forEach(r=>{ supabase.from('productos_maestro').update({precio_venta: nuevos[r], precio: nuevos[r]}).eq('referencia', r).then(()=>{}) }) }catch{}
+    alert(`Precio venta actualizado a ${refsToApply.length} productos - Precio público Máxima: COP`);
   }
 
   return (
