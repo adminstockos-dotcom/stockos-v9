@@ -77,8 +77,27 @@ export default function TabCatalogo({ empresa }) {
   const eliminar = async (nombre) => { if(!confirm(`¿Borrar ${nombre}?`))return; setProveedores(prev=>prev.filter(p=>p.nombre!==nombre)); try{ await supabase.from('proveedores_config').delete().eq('empresa_id',empresaId).eq('nombre_proveedor',nombre)}catch{} }
   const toggle = (nombre) => setAbiertos(prev=>({...prev,[nombre]:!prev[nombre]}))
 
-  const getImg = (it) => it.imagen_sin_fondo || it.imagen_original || maestroFotos[it.referencia]?.imagen_sin_fondo || maestroFotos[it.referencia]?.imagen_original
-  const getCosto = (it) => Number(it.precio || maestroFotos[it.referencia]?.precio || maestroFotos[it.referencia]?.precio_costo || 0)
+  const buscarMaestro = (refCompleta) => {
+    if(!refCompleta) return null
+    if(maestroFotos[refCompleta]) return maestroFotos[refCompleta]
+    // Buscar por codigo corto ej: MBR-1197 dentro de "PUMA CLUB ... - MBR-1197"
+    const partes = String(refCompleta).split('-')
+    const corto = partes[partes.length-1]?.trim() ? `MBR-${partes[partes.length-1].trim().replace('MBR','').trim()}` : null
+    // Intenta exacto corto
+    const codigo = refCompleta.match(/MBR-\d+/i)?.[0]
+    if(codigo && maestroFotos[codigo]) return maestroFotos[codigo]
+    // Busca por incluye
+    for(const k of Object.keys(maestroFotos)){
+      if(refCompleta.includes(k) || k.includes(refCompleta) || (codigo && k.includes(codigo))) return maestroFotos[k]
+    }
+    return null
+  }
+  const getImg = (it) => it.imagen_sin_fondo || it.imagen_original || buscarMaestro(it.referencia)?.imagen_sin_fondo || buscarMaestro(it.referencia)?.imagen_original || maestroFotos[it.referencia]?.imagen_sin_fondo
+  const getCosto = (it) => {
+    const m = buscarMaestro(it.referencia)
+    const raw = it.precio || it.precio_costo || it.precio_proveedor || m?.precio || m?.precio_costo || m?.precio_venta || m?.precio_original || 0
+    return Number(raw||0)
+  }
   const getIncremento = (ref) => Number(incrementos[ref] || 0)
   const getVentaPublica = (it) => {
     if(preciosVenta[it.referencia]) return Number(preciosVenta[it.referencia])
@@ -250,4 +269,3 @@ export default function TabCatalogo({ empresa }) {
     </div>
   )
 }
-
