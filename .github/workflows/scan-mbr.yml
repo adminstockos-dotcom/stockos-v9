@@ -1,11 +1,9 @@
 name: Scan MBR Automatico 8:30 y 14:30
-
 on:
   schedule:
-    - cron: '30 13 * * *'  # 8:30 AM Colombia (13:30 UTC)
-    - cron: '30 19 * * *'  # 2:30 PM Colombia (19:30 UTC)
+    - cron: '30 13 * * *'
+    - cron: '30 19 * * *'
   workflow_dispatch:
-
 jobs:
   scan-mbr:
     runs-on: ubuntu-latest
@@ -14,12 +12,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Escanear MBR 197 productos
-        run: |
-          echo "Iniciando escaneo MBR - 197 productos"
-          node scan-mbr.mjs
+      - name: Instalar dependencias
+        run: npm install @supabase/supabase-js
+      - name: Escanear MBR - 197 productos
+        run: node scan-mbr.mjs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          MBR_USER: "CARLOS ROJAS"
-          MBR_PASS: "CARLOS2026"
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
