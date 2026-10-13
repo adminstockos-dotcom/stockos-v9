@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase.js'
 export default function TabCatalogo({ empresa }) {
   const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
   const empresaNombre = empresa?.nombre || 'MAXIMA IMPORTADORES'
-  const slug = empresaNombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(' ')[0] || 'maxima'
+  const slug = empresaNombre.toLowerCase().normalize("NFD").replace(/\u0300-\u036f/g,"").split(' ')[0] || 'maxima'
 
   const [proveedores, setProveedores] = useState([])
   const [nuevoProv, setNuevoProv] = useState({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
@@ -30,19 +30,13 @@ export default function TabCatalogo({ empresa }) {
   const cargarListado = async () => {
     try {
       setLoadingListado(true)
-
-      // 1. Trae maestro global MBR - 170 productos teñidos con foto sin fondo
       const { data: maestro } = await supabase.from('productos_maestro').select('*').limit(500)
       const mapFotos = {}
       if(maestro){
         maestro.forEach(f=>{ if(!mapFotos[f.referencia]) mapFotos[f.referencia]=f })
         setMaestroFotos(mapFotos)
       }
-
-      // 2. Trae listado por empresa
       const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo',{ascending:false}).limit(1000)
-
-      // 3. Si listado tiene menos de 10, usa directamente los 170 del maestro para mostrar
       if(!data || data.length < 10){
         if(maestro && maestro.length > 0){
           const base = maestro.map(m => ({
@@ -58,7 +52,6 @@ export default function TabCatalogo({ empresa }) {
           return
         }
       }
-
       if(data) setListado(data)
     } catch(e){ console.error(e) } finally{ setLoadingListado(false) }
   }
@@ -67,7 +60,6 @@ export default function TabCatalogo({ empresa }) {
     if(!confirm('¿Copiar los 170 productos MBR con foto a esta empresa?')) return
     try{
       setLoadingListado(true)
-      // FIX fetch failed: usa origin absoluto para que funcione en previews
       const baseUrl = window.location.origin
       const r = await fetch(`${baseUrl}/api/scan-mbr?empresa_id=${empresaId}&t=${Date.now()}`, { cache: 'no-store' })
       const text = await r.text()
@@ -89,9 +81,6 @@ export default function TabCatalogo({ empresa }) {
   }
   const eliminar = async (nombre) => { if(!confirm(`¿Borrar ${nombre}?`))return; setProveedores(prev=>prev.filter(p=>p.nombre!==nombre)); try{ await supabase.from('proveedores_config').delete().eq('empresa_id',empresaId).eq('nombre_proveedor',nombre)}catch{} }
   const toggle = (nombre) => setAbiertos(prev=>({...prev,[nombre]:!prev[nombre]}))
-  const copiar = (txt) => { navigator.clipboard.writeText(txt); alert('Copiado: '+txt) }
-
-  // Helper para obtener imagen correcta
   const getImg = (it) => {
     return it.imagen_sin_fondo || it.imagen_original || maestroFotos[it.referencia]?.imagen_sin_fondo || maestroFotos[it.referencia]?.imagen_original
   }
@@ -101,7 +90,7 @@ export default function TabCatalogo({ empresa }) {
       <div className="flex justify-between items-center flex-wrap gap-2">
         <div><h2 className="text-xl font-black uppercase">ENLACES PROVEEDORES - NOTIFICACIONES</h2><p className="text-sm text-gray-500">{empresaNombre} - {proveedores.length} proveedores - {listado.length} refs - Auto 8:30 AM y 2:30 PM {loadingListado&&'(cargando...)'}</p></div>
         <div className="flex gap-2">
-          <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-black">POR EMPRESA</span>
+          <button onClick={()=>window.open(urlCatalogoFallback,'_blank')} className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded font-black text-xs">👁 VER CATÁLOGO</button>
           <button onClick={escanearAhora} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded font-black text-xs">⚡ ESCANEAR AHORA - 170</button>
           <button onClick={cargarListado} className="bg-black text-white px-4 py-2 rounded font-black text-xs">🔄 ACTUALIZAR TODO</button>
         </div>
@@ -138,39 +127,6 @@ export default function TabCatalogo({ empresa }) {
             </div>
           )
         })}
-      </div>
-
-      <div className="bg-white border-2 border-green-600 rounded-lg overflow-hidden">
-        <div className="bg-green-600 text-white p-3 flex justify-between items-center flex-wrap gap-2">
-          <div className="font-black text-sm">CATÁLOGO VIRTUAL EN VIVO - {listado.length} REFS TOTAL</div>
-          <div className="flex gap-2">
-            <button onClick={()=>copiar(urlCatalogoCorto)} className="bg-white text-green-700 px-3 py-1 rounded text-xs font-black">📋 COPIAR LINK CORTO</button>
-            <button onClick={()=>window.open(urlCatalogoFallback,'_blank')} className="bg-black text-white px-3 py-1 rounded text-xs font-black">👁 VER CATÁLOGO</button>
-          </div>
-        </div>
-        <div className="p-3">
-          <div className="bg-gray-50 border rounded p-2 mb-3">
-            <div className="text-xs font-black text-gray-600">LINK PÚBLICO PARA COMPARTIR - MAXIMA PRIMERO</div>
-            <div className="text-base font-black text-blue-600 break-all select-all">{urlCatalogoCorto}</div>
-            <div className="text-xs text-green-700 font-bold mt-1">Link funcional hoy: {urlCatalogoFallback}</div>
-          </div>
-          {listado.length===0? <p className="text-xs text-gray-500 text-center py-3">Catálogo vacío hasta que caigan los escaneos. Usa ⚡ ESCANEAR AHORA.</p>:
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
-            {listado.map((it,i)=>{
-              const img = getImg(it)
-              return (
-                <div key={i} className="border rounded p-2 bg-white hover:shadow">
-                  <div className="bg-white h-32 rounded mb-1 flex items-center justify-center overflow-hidden border">
-                    {img? <img src={img} alt={it.referencia} className="h-full w-full object-contain"/> : <span className="text-xs text-gray-400">SIN FOTO</span>}
-                  </div>
-                  <div className="text-xs font-black truncate">{it.referencia}</div>
-                  <div className="text- text-gray-500">{it.proveedor_nombre} - T:{it.talla}</div>
-                  <div className="text-xs font-bold">${Number(it.precio||0).toLocaleString()}</div>
-                </div>
-              )
-            })}
-          </div>}
-        </div>
       </div>
     </div>
   )
