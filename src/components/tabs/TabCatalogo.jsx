@@ -247,13 +247,23 @@ export default function TabCatalogo({ empresa }) {
                             const inc=getIncremento(it.referencia)
                             const venta=getVentaPublica(it)
                             const isSel=sel.has(it.referencia)
+                            const rawPrice = it.precio || buscarMaestro(it.referencia)?.precio || 0
                             return(
-                              <tr key={i} className={`border-t ${isSel?'bg-orange-50':''}`}>
+                              <tr key={i} className={`border-t ${isSel?'bg-orange-50':''} ${rawPrice===0?'bg-red-50':''}`}>
                                 <td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(p.nombre, it.referencia, e.target.checked)}/></td>
                                 <td className="p-1">{img?<img src={img} className="h-10 w-10 object-contain bg-white"/>:<span className="text-gray-400">—</span>}</td>
-                                <td className="p-2 font-bold">{it.referencia}</td>
+                                <td className="p-2 font-bold text-[10px]">{it.referencia}</td>
                                 <td className="p-2">{it.talla}</td>
-                                <td className="p-2">${costo.toLocaleString('es-CO')}</td>
+                                <td className="p-2">
+                                  <input type="number" value={it.precio===0?'':it.precio} onChange={async e=>{
+                                    const v=Number(e.target.value)||0
+                                    const newList=[...listado]; newList[i]={...it, precio:v}; setListado(newList)
+                                    try{ await supabase.from('listado_maestro_proveedor').update({precio:v}).eq('id', it.id) }catch{}
+                                    try{ const m=buscarMaestro(it.referencia); if(m?.id) await supabase.from('productos_maestro').update({precio:v}).eq('id', m.id) }catch{}
+                                  }} placeholder="0" className={`border-2 ${rawPrice===0?'border-red-400 bg-red-50':'border-gray-300'} rounded px-2 py-1 w-28 text-xs font-black`}/>
+                                  {rawPrice===0 && <div className="text-[9px] text-red-600 font-bold">SIN PRECIO - edita</div>}
+                                  {rawPrice>0 && <div className="text-[9px] text-gray-500">${costo.toLocaleString('es-CO')}</div>}
+                                </td>
                                 <td className="p-2 bg-orange-50">
                                   <input type="number" value={incrementos[it.referencia]!==undefined? incrementos[it.referencia] : ''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="0" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/>
                                   <div className="text-[9px] text-gray-500 mt-0.5">COP a sumar</div>
