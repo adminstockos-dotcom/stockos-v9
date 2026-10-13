@@ -41,9 +41,7 @@ export default function SuperAdmin({ user, onLogout }){
   return(
     <div className="min-h-screen bg-[#f8f9fa]">
       <div className="h-16 bg-[#0E2A4D] flex items-center justify-between px-4">
-        <div className="flex items-center gap-3">
-          <img src="/assets/stockos_logo_oficial_clean.png" alt="STOCKOS" className="h-10 w-auto object-contain" onError={e=>e.target.src='/logo-stockos-oficial.png'} />
-        </div>
+        <img src="/assets/stockos_logo_oficial_clean.png" alt="STOCKOS" className="h-10 w-auto object-contain" onError={e=>e.target.src='/logo-stockos-oficial.png'} />
         <div className="flex items-center gap-3 text-white text-xs">
           <span className="hidden md:inline">Super Admin: {user?.email||''}</span>
           <button onClick={onLogout} className="bg-white/20 px-3 py-1 rounded-full">Salir</button>
@@ -52,7 +50,7 @@ export default function SuperAdmin({ user, onLogout }){
 
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
         <div className="bg-white rounded-xl border p-4 flex justify-between items-center">
-          <div><h2 className="font-black text-sm">Crear Empresa</h2><p className="text-xs text-gray-500">Registra nueva empresa con logo y encargado</p></div>
+          <div><h2 className="font-black text-sm">Crear Empresa</h2><p className="text-xs text-gray-500">Registra nueva empresa</p></div>
           <button onClick={()=>setShowModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded text-xs font-black">+ Nueva Empresa</button>
         </div>
 
@@ -72,7 +70,7 @@ export default function SuperAdmin({ user, onLogout }){
                   <div><div className="font-black">{emp.nombre}</div><div className="text-gray-500">{emp.slug}</div></div>
                   <div className="truncate">{emp.encargado||'—'}<div className="text-gray-400">{emp.telefono||''}</div></div>
                   <div>
-                    <select value={emp.estado||'pendiente'} onChange={e=>cambiarEstado(emp.id,e.target.value)} className={`px-2 py-1 rounded-full font-black border ${emp.estado==='aprobada'?'bg-green-100 text-green-700 border-green-200':'bg-yellow-100 text-yellow-700 border-yellow-200'}`}>
+                    <select value={emp.estado||'pendiente'} onChange={e=>cambiarEstado(emp.id,e.target.value)} className="px-2 py-1 rounded-full font-black border bg-yellow-100 text-yellow-700">
                       <option value="pendiente">pendiente</option>
                       <option value="aprobada">aprobada</option>
                       <option value="suspendida">suspendida</option>
