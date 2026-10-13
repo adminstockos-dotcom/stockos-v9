@@ -1,34 +1,25 @@
-name: scan-mbr
+name: Scan MBR Automatico 8:30 y 14:30
+
 on:
+  schedule:
+    - cron: '30 13 * * *'  # 8:30 AM Colombia (13:30 UTC)
+    - cron: '30 19 * * *'  # 2:30 PM Colombia (19:30 UTC)
   workflow_dispatch:
+
 jobs:
-  scan:
+  scan-mbr:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scan real con payload
-        env:
-          MBR_PASS: ${{ secrets.MBR_PASS }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Escanear MBR 197 productos
         run: |
-          set -e
-          sudo apt-get update -qq && sudo apt-get install -y -qq jq > /dev/null
-          RESP=$(curl -s -k -X POST https://mbr.demachine.co/api/users/token -H "Content-Type: application/json" -d "{\"name\":\"CARLSO ROJAS\",\"password\":\"$MBR_PASS\",\"instance\":\"mbr\"}")
-          TOKEN=$(echo "$RESP" | jq -r '.data.token')
-          ME=$(curl -s -k https://mbr.demachine.co/api/users/me -H "Authorization: Bearer $TOKEN")
-          echo "$ME" | head -c 800
-          echo ""
-          PAT=$(echo "$ME" | jq -r '.data.me.patinadore_id')
-          ID=$(echo "$ME" | jq -r '.data.me.id')
-          echo "patinadore_id=$PAT id=$ID"
-
-          for BODY in '{}' "{\"patinadore_id\":$PAT}" "{\"client_id\":$PAT}" "{\"id\":$ID}" "{\"user_id\":$ID}" "{\"patinadore_id\":$PAT,\"client\":true}"; do
-            echo "== BODY $BODY =="
-            curl -s -k -X POST https://paymaster2.demachine.co/api/getClientProduct -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -H "Origin: https://estock-mobile.demachine.co" -d "$BODY" | head -c 1000
-            echo ""
-          done
-
-          echo "== indexMe MBR =="
-          curl -s -k "https://mbr.demachine.co/api/indexMe?page=1&maxPerPage=5" -H "Authorization: Bearer $TOKEN" | head -c 1500
-          echo ""
-          echo "== indexMe PAYMASTER2 =="
-          curl -s -k "https://paymaster2.demachine.co/api/indexMe?page=1&maxPerPage=5" -H "Authorization: Bearer $TOKEN" -H "Origin: https://estock-mobile.demachine.co" | head -c 1500
+          echo "Iniciando escaneo MBR - 197 productos"
+          node scan-mbr.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MBR_USER: "CARLOS ROJAS"
+          MBR_PASS: "CARLOS2026"
