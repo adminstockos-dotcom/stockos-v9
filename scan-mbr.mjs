@@ -29,7 +29,7 @@ function parsePrecio(html){
   if(!html) return 0;
   try{
     if(typeof html!=='string') html=JSON.stringify(html);
-    let m=html.match(/"precio(?:_final)?"\s*:\s*"?(\d+[\d\.,]*)"?/i);
+    let m=html.match(/"precio(?:_final|_venta|_detal)?"\s*:\s*"?([\d\.\,]+)"?/i);
     if(m){ let n=parseInt(m[1].replace(/[^\d]/g,''),10); if(n>=5000) return n; }
     const ms=[...html.matchAll(/\$\s*([\d\.\,]+)/g)];
     for(const mm of ms){ let n=parseInt(mm[1].replace(/[^\d]/g,''),10); if(n>=10000 && n<=500000) return n; }
@@ -47,12 +47,12 @@ if(!todos || todos.length===0){
   process.exit(0);
 }
 
-let out=[];
+let updates=[];
 let sinPrecio=[];
 
 for(const p of todos){
   let precio=p.precio||0;
-  if((!precio || precio===0) && cookie){
+  if(!precio || precio===0){
     try{
       const txt=await (await fetch(`${BASE}/request?product=${encodeURIComponent(p.referencia)}`,{headers:{'User-Agent':'Mozilla/5.0',Cookie:cookie}})).text();
       const found=parsePrecio(txt);
@@ -61,14 +61,15 @@ for(const p of todos){
     await new Promise(r=>setTimeout(r,300));
   }
   if(!precio) sinPrecio.push(p.referencia);
-  out.push({...p, precio:precio||0, stock:12, proveedor:'MBR - MÁXIMA'});
+  else updates.push({referencia:p.referencia, precio:precio, stock:12});
 }
 
-for(let i=0;i<out.length;i+=100){
-  const {error}=await supabase.from('productos_maestro').upsert(out.slice(i,i+100),{onConflict:'referencia'});
+for(let i=0;i<updates.length;i+=100){
+  const chunk=updates.slice(i,i+100);
+  const {error}=await supabase.from('productos_maestro').upsert(chunk,{onConflict:'referencia'});
   if(error) console.log('upsert error',error.message);
-  else console.log(`upsert ${i}-${Math.min(i+100,out.length)} OK`);
+  else console.log(`upsert ${i}-${i+chunk.length} OK`);
 }
 
 console.log('=== LISTO ===');
-console.log('Total:',out.length,'Con precio:',out.filter(x=>x.precio>0).length,'Sin precio:',sinPrecio.length);
+console.log('Total:',todos.length,'Con precio:',updates.length,'Sin precio:',sinPrecio.length);
