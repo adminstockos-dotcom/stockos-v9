@@ -11,16 +11,22 @@ const PAS=process.env.ESTOCK_PASSWORD;
 
 async function login(){
   try{
-    const init = await fetch(`${BASE}/`, {headers:{'User-Agent':'Mozilla/5.0'}});
-    const initC = init.headers.get('set-cookie')||'';
+    const initRes = await fetch(`${BASE}/`, {headers:{'User-Agent':'Mozilla/5.0'}});
+    const initHtml = await initRes.text();
+    const initC = initRes.headers.get('set-cookie')||'';
+    console.log('GET / status',initRes.status,'len',initHtml.length);
+
     const r = await fetch(`${BASE}/login`,{
       method:'POST',
       headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0','Cookie':initC},
       body:`instancia=${encodeURIComponent(INST)}&usuario=${encodeURIComponent(USU)}&contrasena=${encodeURIComponent(PAS)}&password=${encodeURIComponent(PAS)}`,
       redirect:'manual'
     });
-    const c=[initC, r.headers.get('set-cookie')||''].filter(Boolean).join('; ');
-    console.log('login',r.status,'cookie len',c.length);
+    const setC = r.headers.get('set-cookie')||'';
+    const c=[initC, setC].filter(Boolean).join('; ');
+    const txt = await r.text();
+    console.log('POST /login status',r.status,'cookie len',c.length,'location',r.headers.get('location')||'no');
+    console.log('login body preview:',txt.slice(0,500));
     return c;
   }catch(e){ console.log('login error',e.message); return ''; }
 }
@@ -28,11 +34,11 @@ async function login(){
 function parsePrecio(html){
   if(!html) return 0;
   try{
-    if(typeof html!=='string') html=JSON.stringify(html);
-    let m=html.match(/"precio(?:_final|_venta|_detal)?"\s*:\s*"?([\d\.\,]+)"?/i);
+    const s=typeof html==='string'?html:JSON.stringify(html);
+    let m=s.match(/"precio[^"]*"\s*:\s*"?([\d\.\,]+)"?/i);
     if(m){ let n=parseInt(m[1].replace(/[^\d]/g,''),10); if(n>=5000) return n; }
-    const ms=[...html.matchAll(/\$\s*([\d\.\,]+)/g)];
-    for(const mm of ms){ let n=parseInt(mm[1].replace(/[^\d]/g,''),10); if(n>=10000 && n<=500000) return n; }
+    const ms=[...s.matchAll(/\$\s*([\d\.\,]+)/g)];
+    for(const mm of ms){ let n=parseInt(mm[1].replace(/[^\d]/g,''),10); if(n>=10000 && n<=600000) return n; }
   }catch{}
   return 0;
 }
@@ -42,20 +48,19 @@ const cookie=await login();
 let {data:todos} = await supabase.from('productos_maestro').select('*').limit(1000);
 console.log('Productos en DB:',todos?.length||0);
 
-if(!todos || todos.length===0){
-  console.log('Tabla vacia, no hay nada que actualizar');
-  process.exit(0);
-}
-
 let updates=[];
 let sinPrecio=[];
 
-for(const p of todos){
+for(let idx=0; idx<todos.length; idx++){
+  const p=todos[idx];
   let precio=p.precio||0;
   if(!precio || precio===0){
     try{
-      const txt=await (await fetch(`${BASE}/request?product=${encodeURIComponent(p.referencia)}`,{headers:{'User-Agent':'Mozilla/5.0',Cookie:cookie}})).text();
+      const url=`${BASE}/request?product=${encodeURIComponent(p.referencia)}`;
+      const res=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0',Cookie:cookie}});
+      const txt=await res.text();
       const found=parsePrecio(txt);
+      if(idx<2) console.log(`DEBUG ${p.referencia} status ${res.status} len ${txt.length} preview ${txt.slice(0,300)} found ${found}`);
       if(found>0){ precio=found; console.log(p.referencia,'->',precio); }
     }catch(e){ console.log('fail',p.referencia,e.message); }
     await new Promise(r=>setTimeout(r,300));
@@ -64,11 +69,12 @@ for(const p of todos){
   else updates.push({referencia:p.referencia, precio:precio, stock:12});
 }
 
+console.log(`Para actualizar: ${updates.length}`);
+
 for(let i=0;i<updates.length;i+=100){
-  const chunk=updates.slice(i,i+100);
-  const {error}=await supabase.from('productos_maestro').upsert(chunk,{onConflict:'referencia'});
+  const {error}=await supabase.from('productos_maestro').upsert(updates.slice(i,i+100),{onConflict:'referencia'});
   if(error) console.log('upsert error',error.message);
-  else console.log(`upsert ${i}-${i+chunk.length} OK`);
+  else console.log(`upsert ${i}-${i+100} OK`);
 }
 
 console.log('=== LISTO ===');
