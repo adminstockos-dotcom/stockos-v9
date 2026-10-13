@@ -10,9 +10,16 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       ESTOCK_INSTANCIA: ${{ secrets.ESTOCK_INSTANCIA }}
       ESTOCK_USUARIO: ${{ secrets.ESTOCK_USUARIO }}
       ESTOCK_PASSWORD: ${{ secrets.ESTOCK_PASSWORD }}
     steps:
-      - name: Llamar a Vercel para scan MBR
-        run: curl -s "https://stockos-v9.vercel.app/api/scan-mbr?secret=stockos2024"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Instalar dependencias
+        run: npm install @supabase/supabase-js
+      - name: Ejecutar scan MBR con precios Estock reales
+        run: node scan-mbr.mjs
