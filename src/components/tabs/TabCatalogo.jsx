@@ -249,3 +249,5 @@ export default function TabCatalogo({ empresa }) {
       </div>
     </div>
   )
+}
+
