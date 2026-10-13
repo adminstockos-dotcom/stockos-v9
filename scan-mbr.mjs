@@ -12,17 +12,28 @@ async function login(){
     return r.headers.get('set-cookie')||'';
   }catch{ return ''; }
 }
+
+async function fetchJson(urls){
+  for(const u of urls){
+    try{
+      const r=await fetch(u,{headers:{'User-Agent':'Mozilla/5.0'}});
+      if(r.ok) return await r.json();
+    }catch{}
+    await new Promise(s=>setTimeout(s,1000));
+  }
+  throw new Error('No MBR');
+}
+
 const cookie=await login();
-console.log('cookie',cookie.slice(0,50));
-const data=await (await fetch('https://www.mbr.com.co/products.json?limit=250')).json();
+const data=await fetchJson(['https://mbr.com.co/products.json?limit=250','https://www.mbr.com.co/products.json?limit=250']);
 let out=[];
 for(const p of data.products){
   const v=p.variants[0]; const ref=(v.sku||p.handle).toUpperCase(); const img=p.images[0]?.src||'';
   let precio=parseFloat(v.price||0);
   if(!precio){
     try{
-      const html=await (await fetch(`${BASE}/request?product=${encodeURIComponent(ref)}`,{headers:{Cookie:cookie}})).text();
-      const m=html.match(/\$?\s*([\d\.\,]+)/); if(m) precio=parseInt(m[1].replace(/\./g,'').replace(/,/g,''),10);
+      const h=await (await fetch(`${BASE}/request?product=${encodeURIComponent(ref)}`,{headers:{Cookie:cookie}})).text();
+      const m=h.match(/\$?\s*([\d\.\,]+)/); if(m) precio=parseInt(m[1].replace(/\./g,'').replace(/,/g,''),10);
     }catch{}
   }
   out.push({referencia:ref,nombre:p.title,talla:'M',precio:precio||80000,stock:12,imagen_original:img,imagen_sin_fondo:img,proveedor:'MBR - MÁXIMA'});
