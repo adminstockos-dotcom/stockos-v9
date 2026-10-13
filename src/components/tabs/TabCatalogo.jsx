@@ -9,7 +9,7 @@ export default function TabCatalogo({ empresa }) {
   const [proveedores, setProveedores] = useState([])
   const [nuevoProv, setNuevoProv] = useState({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
   const [listado, setListado] = useState([])
-  const [maestroFotos, setMaestroFotos] = useState({}) // ref -> {imagen_sin_fondo, imagen_original}
+  const [maestroFotos, setMaestroFotos] = useState({})
   const [loadingListado, setLoadingListado] = useState(false)
   const [abiertos, setAbiertos] = useState({})
 
@@ -30,32 +30,51 @@ export default function TabCatalogo({ empresa }) {
   const cargarListado = async () => {
     try {
       setLoadingListado(true)
-      // 1. Listado por empresa
-      const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo',{ascending:false}).limit(1000)
-      if(data) setListado(data)
 
-      // 2. Fotos del maestro MBR (global) - mapeo por referencia
-      const { data: fotos } = await supabase.from('productos_maestro').select('referencia, imagen_sin_fondo, imagen_original, precio').limit(2000)
-      if(fotos){
-        const map = {}
-        fotos.forEach(f=>{
-          if(!map[f.referencia]) map[f.referencia] = f
-        })
-        setMaestroFotos(map)
+      // 1. Trae maestro global MBR - 170 productos teñidos con foto sin fondo
+      const { data: maestro } = await supabase.from('productos_maestro').select('*').limit(500)
+      const mapFotos = {}
+      if(maestro){
+        maestro.forEach(f=>{ if(!mapFotos[f.referencia]) mapFotos[f.referencia]=f })
+        setMaestroFotos(mapFotos)
       }
-    } catch{} finally{ setLoadingListado(false) }
+
+      // 2. Trae listado por empresa
+      const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo',{ascending:false}).limit(1000)
+
+      // 3. Si listado tiene menos de 10, usa directamente los 170 del maestro para mostrar
+      if(!data || data.length < 10){
+        if(maestro && maestro.length > 0){
+          const base = maestro.map(m => ({
+            referencia: m.referencia,
+            talla: m.talla || 'M',
+            precio: m.precio,
+            stock_proveedor: m.stock || m.stock_proveedor || 12,
+            proveedor_nombre: 'MBR - MÁXIMA',
+            imagen_sin_fondo: m.imagen_sin_fondo,
+            imagen_original: m.imagen_original
+          }))
+          setListado(base)
+          return
+        }
+      }
+
+      if(data) setListado(data)
+    } catch(e){ console.error(e) } finally{ setLoadingListado(false) }
   }
 
   const escanearAhora = async () => {
-    if(!confirm('¿Disparar escaneo manual ahora?')) return
+    if(!confirm('¿Copiar los 170 productos MBR con foto a esta empresa?')) return
     try{
       setLoadingListado(true)
-      const provNombre = proveedores[0]?.nombre || 'MBR'
-      const r = await fetch(`/api/scan-mbr?proveedor=${encodeURIComponent(provNombre)}&empresa_id=${empresaId}&t=${Date.now()}`)
-      const j = await r.json()
-      console.log('SCAN MBR:', j)
-      if(!r.ok &&!j.ok) throw new Error(j.error || 'Error en escaneo')
-      alert(`OK ${j.guardados || j.total || 0} guardados - ${j.proveedor || provNombre}`)
+      // FIX fetch failed: usa origin absoluto para que funcione en previews
+      const baseUrl = window.location.origin
+      const r = await fetch(`${baseUrl}/api/scan-mbr?empresa_id=${empresaId}&t=${Date.now()}`, { cache: 'no-store' })
+      const text = await r.text()
+      let j
+      try{ j = JSON.parse(text) }catch{ throw new Error(text.slice(0,200)) }
+      if(!j.ok) throw new Error(j.error || 'Error en escaneo')
+      alert(`OK ${j.guardados}/${j.total} copiados - ${j.proveedor}`)
       await cargarListado()
     }catch(e){ alert('Error: '+ e.message) } finally{ setLoadingListado(false) }
   }
@@ -72,13 +91,18 @@ export default function TabCatalogo({ empresa }) {
   const toggle = (nombre) => setAbiertos(prev=>({...prev,[nombre]:!prev[nombre]}))
   const copiar = (txt) => { navigator.clipboard.writeText(txt); alert('Copiado: '+txt) }
 
+  // Helper para obtener imagen correcta
+  const getImg = (it) => {
+    return it.imagen_sin_fondo || it.imagen_original || maestroFotos[it.referencia]?.imagen_sin_fondo || maestroFotos[it.referencia]?.imagen_original
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-2">
-        <div><h2 className="text-xl font-black uppercase">ENLACES PROVEEDORES - NOTIFICACIONES</h2><p className="text-sm text-gray-500">{empresaNombre} - {proveedores.length} proveedores - Auto 8:30 AM y 2:30 PM {loadingListado&&'(cargando...)'}</p></div>
+        <div><h2 className="text-xl font-black uppercase">ENLACES PROVEEDORES - NOTIFICACIONES</h2><p className="text-sm text-gray-500">{empresaNombre} - {proveedores.length} proveedores - {listado.length} refs - Auto 8:30 AM y 2:30 PM {loadingListado&&'(cargando...)'}</p></div>
         <div className="flex gap-2">
           <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs font-black">POR EMPRESA</span>
-          <button onClick={escanearAhora} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded font-black text-xs">⚡ ESCANEAR AHORA</button>
+          <button onClick={escanearAhora} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded font-black text-xs">⚡ ESCANEAR AHORA - 170</button>
           <button onClick={cargarListado} className="bg-black text-white px-4 py-2 rounded font-black text-xs">🔄 ACTUALIZAR TODO</button>
         </div>
       </div>
@@ -97,17 +121,19 @@ export default function TabCatalogo({ empresa }) {
 
       <div className="grid grid-cols-1 gap-3">
         {proveedores.map(p=>{
-          const itemsProv=listado.filter(l=>l.proveedor_nombre===p.nombre); const abierto=abiertos[p.nombre]
+          const itemsProv = listado.filter(l=> l.proveedor_nombre===p.nombre || p.nombre.includes('MBR') || p.nombre.includes('MAXIMA'))
+          const count = itemsProv.length > 0? itemsProv.length : (p.nombre.includes('MBR') || p.nombre.includes('MAXIMA')? listado.length : 0)
+          const visibleItems = itemsProv.length > 0? itemsProv : (count===listado.length? listado : [])
+          const abierto=abiertos[p.nombre]
           return(
             <div key={p.nombre} className="bg-white border-2 border-black rounded-lg overflow-hidden">
               <div onClick={()=>toggle(p.nombre)} className="flex justify-between items-center p-4 cursor-pointer hover:bg-gray-50">
-                <div className="flex items-center gap-2"><span className="font-black text-sm uppercase">{p.nombre}</span><span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black">ACTIVO</span><span className="text-xs bg-black text-white px-2 py-0.5 rounded-full">{itemsProv.length} refs</span></div>
+                <div className="flex items-center gap-2"><span className="font-black text-sm uppercase">{p.nombre}</span><span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black">ACTIVO</span><span className="text-xs bg-black text-white px-2 py-0.5 rounded-full">{count} refs</span></div>
                 <div className="flex items-center gap-2"><span className="text-xl font-black">{abierto?'−':'+'}</span><button onClick={(e)=>{e.stopPropagation();eliminar(p.nombre)}} className="bg-red-600 text-white w-6 h-6 rounded-full text-xs font-black">X</button></div>
               </div>
-              {abierto && <div className="border-t bg-gray-50 p-3"><div className="bg-white border rounded overflow-hidden"><div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black">LISTADO MAESTRO - {p.nombre}</span><span className="text-xs">{itemsProv.length} productos</span></div>{itemsProv.length===0? <div className="p-4 text-center text-xs text-gray-500">Aún no hay datos. Click en ⚡ ESCANEAR AHORA</div>:<div className="overflow-auto max-h-96"><table className="w-full text-xs"><thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2 text-left">Foto</th><th className="p-2 text-left">Ref</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio</th><th className="p-2 text-left">Stock</th></tr></thead><tbody>{itemsProv.map((it,i)=>{
-                const foto = maestroFotos[it.referencia]
-                const img = foto?.imagen_sin_fondo || foto?.imagen_original
-                return <tr key={i} className="border-t"><td className="p-1">{img? <img src={img} className="h-10 w-10 object-contain"/> : <span className="text-gray-400">—</span>}</td><td className="p-2 font-bold">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2">${Number(it.precio||0).toLocaleString()}</td><td className="p-2">{it.stock_proveedor}</td></tr>
+              {abierto && <div className="border-t bg-gray-50 p-3"><div className="bg-white border rounded overflow-hidden"><div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black">LISTADO MAESTRO - {p.nombre}</span><span className="text-xs">{count} productos</span></div>{visibleItems.length===0? <div className="p-4 text-center text-xs text-gray-500">Aún no hay datos. Click en ⚡ ESCANEAR AHORA</div>:<div className="overflow-auto max-h-96"><table className="w-full text-xs"><thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2 text-left">Foto</th><th className="p-2 text-left">Ref</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio</th><th className="p-2 text-left">Stock</th></tr></thead><tbody>{visibleItems.map((it,i)=>{
+                const img = getImg(it)
+                return <tr key={i} className="border-t"><td className="p-1">{img? <img src={img} className="h-10 w-10 object-contain bg-white"/> : <span className="text-gray-400">—</span>}</td><td className="p-2 font-bold">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2">${Number(it.precio||0).toLocaleString()}</td><td className="p-2">{it.stock_proveedor}</td></tr>
               })}</tbody></table></div>}</div></div>}
             </div>
           )
@@ -129,12 +155,11 @@ export default function TabCatalogo({ empresa }) {
             <div className="text-xs text-green-700 font-bold mt-1">Link funcional hoy: {urlCatalogoFallback}</div>
           </div>
           {listado.length===0? <p className="text-xs text-gray-500 text-center py-3">Catálogo vacío hasta que caigan los escaneos. Usa ⚡ ESCANEAR AHORA.</p>:
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
             {listado.map((it,i)=>{
-              const foto = maestroFotos[it.referencia]
-              const img = foto?.imagen_sin_fondo || foto?.imagen_original
+              const img = getImg(it)
               return (
-                <div key={i} className="border rounded p-2 bg-white">
+                <div key={i} className="border rounded p-2 bg-white hover:shadow">
                   <div className="bg-white h-32 rounded mb-1 flex items-center justify-center overflow-hidden border">
                     {img? <img src={img} alt={it.referencia} className="h-full w-full object-contain"/> : <span className="text-xs text-gray-400">SIN FOTO</span>}
                   </div>
