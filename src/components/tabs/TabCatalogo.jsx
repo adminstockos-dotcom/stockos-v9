@@ -38,12 +38,22 @@ export default function TabCatalogo({ empresa }) {
     try {
       setLoadingListado(true)
       const { data: maestro } = await supabase.from('productos_maestro').select('*').limit(800)
+      console.log('MAESTRO SAMPLE', maestro?.[0])
       const mapFotos = {}
-      if(maestro){ maestro.forEach(f=>{ if(!mapFotos[f.referencia]) mapFotos[f.referencia]=f }); setMaestroFotos(mapFotos) }
+      if(maestro){ 
+        maestro.forEach(f=>{ 
+          if(f.referencia && !mapFotos[f.referencia]) mapFotos[f.referencia]=f
+          // también guarda por codigo MBR-XXXX
+          const code = String(f.referencia).match(/MBR-\d+/i)?.[0]
+          if(code && !mapFotos[code]) mapFotos[code]=f
+        }); 
+        setMaestroFotos(mapFotos) 
+      }
       const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo',{ascending:false}).limit(1500)
+      console.log('LISTADO SAMPLE', data?.[0])
       if(!data || data.length < 5){
         if(maestro && maestro.length > 0){
-          setListado(maestro.map(m => ({ referencia: m.referencia, talla: m.talla || 'M', precio: m.precio || m.precio_costo || 0, stock_proveedor: m.stock || m.stock_proveedor || 12, proveedor_nombre: 'MBR - MÁXIMA', imagen_sin_fondo: m.imagen_sin_fondo, imagen_original: m.imagen_original })))
+          setListado(maestro.map(m => ({ referencia: m.referencia, talla: m.talla || 'M', precio: m.precio || m.precio_costo || m.precio_venta || m.precio_original || 0, stock_proveedor: m.stock || m.stock_proveedor || 12, proveedor_nombre: 'MBR - MÁXIMA', imagen_sin_fondo: m.imagen_sin_fondo, imagen_original: m.imagen_original })))
           return
         }
       }
