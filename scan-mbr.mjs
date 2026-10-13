@@ -13,19 +13,38 @@ async function login(){
   }catch{ return ''; }
 }
 
-async function fetchJson(urls){
+async function fetchJson(){
+  const urls=[
+    'https://mbr.com.co/products.json?limit=250',
+    'https://mbr.com.co/collections/all/products.json?limit=250',
+    'https://mbr.com.co/collections/camisetas/products.json?limit=250',
+    'https://www.mbr.com.co/products.json?limit=250'
+  ];
   for(const u of urls){
     try{
-      const r=await fetch(u,{headers:{'User-Agent':'Mozilla/5.0'}});
-      if(r.ok) return await r.json();
-    }catch{}
-    await new Promise(s=>setTimeout(s,1000));
+      console.log('probando',u);
+      const r=await fetch(u,{
+        headers:{
+          'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept':'application/json',
+          'Referer':'https://mbr.com.co/'
+        }
+      });
+      console.log(u, r.status);
+      if(r.ok){
+        const j=await r.json();
+        if(j.products && j.products.length>0) return j;
+      }
+    }catch(e){ console.log('error',u,e.message); }
   }
   throw new Error('No MBR');
 }
 
 const cookie=await login();
-const data=await fetchJson(['https://mbr.com.co/products.json?limit=250','https://www.mbr.com.co/products.json?limit=250']);
+console.log('cookie', cookie? 'OK' : 'VACIA');
+const data=await fetchJson();
+console.log('productos', data.products.length);
+
 let out=[];
 for(const p of data.products){
   const v=p.variants[0]; const ref=(v.sku||p.handle).toUpperCase(); const img=p.images[0]?.src||'';
