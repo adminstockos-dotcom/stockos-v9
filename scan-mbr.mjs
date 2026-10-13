@@ -9,78 +9,109 @@ const USU=process.env.ESTOCK_USUARIO;
 const PAS=process.env.ESTOCK_PASSWORD;
 
 async function login(){
-  try{
-    const init = await fetch(`${BASE}/`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const initCookie = init.headers.get('set-cookie') || '';
-    const r=await fetch(`${BASE}/login`,{
-      method:'POST',
-      headers:{
-        'Content-Type':'application/x-www-form-urlencoded',
-        'User-Agent':'Mozilla/5.0',
-        'Cookie': initCookie
-      },
-      body:`instancia=${encodeURIComponent(INST)}&usuario=${encodeURIComponent(USU)}&contrasena=${encodeURIComponent(PAS)}&password=${encodeURIComponent(PAS)}`,
-      redirect:'manual'
-    });
-    const c=[initCookie, r.headers.get('set-cookie')||''].filter(Boolean).join('; ');
-    console.log('login status',r.status,'cookie len',c.length);
-    return c;
-  }catch(e){ console.log('login error',e.message); return ''; }
+  const init = await fetch(`${BASE}/`, {headers:{'User-Agent':'Mozilla/5.0'}});
+  const initC = init.headers.get('set-cookie')||'';
+  const r=await fetch(`${BASE}/login`,{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0','Cookie':initC},
+    body:`instancia=${encodeURIComponent(INST)}&usuario=${encodeURIComponent(USU)}&contrasena=${encodeURIComponent(PAS)}&password=${encodeURIComponent(PAS)}`,
+    redirect:'manual'
+  });
+  const c=[initC, r.headers.get('set-cookie')||''].filter(Boolean).join('; ');
+  console.log('login',r.status,'cookie',c.length);
+  return c;
 }
 
-function parsePrecio(html){
-  // busca $ 80.000 / 80000 / 80,000 solo si es precio real > 1000
-  const matches = [...html.matchAll(/\$\s*([\d\.\,]+)/g)];
-  for(const m of matches){
-    const raw = m[1].replace(/[^\d]/g,'');
-    const num = parseInt(raw,10);
-    if(num >= 10000 && num <= 500000) return num;
+function extraePrecio(html, json){
+  // 1. $ 80.000
+  let m=[...html.matchAll(/\$\s*([\d\.\,]+)/g)];
+  for(let x of m){
+    let n=parseInt(x[1].replace(/[^\d]/g,''),10);
+    if(n>=10000 && n<=500000) return n;
   }
-  // fallback busca 80000 suelto en json
-  const m2 = html.match(/"precio"\s*:\s*(\d+)/i);
+  // 2. JSON "precio":80000
+  try{
+    if(json){
+      let j=typeof json==='string'?JSON.parse(json):json;
+      if(j.precio) return parseInt(j.precio,10);
+      if(j.price) return parseInt(j.price,10);
+      if(j.data?.[0]?.precio) return parseInt(j.data[0].precio,10);
+    }
+  }catch{}
+  let m2=html.match(/"precio"\s*:\s*"?(\d+)"?/i);
   if(m2) return parseInt(m2[1],10);
+  return 0;
+}
+
+async function getPrecioEstock(ref, cookie){
+  const rutas=[
+    `${BASE}/request?product=${encodeURIComponent(ref)}`,
+    `${BASE}/api/productos?search=${encodeURIComponent(ref)}`,
+    `${BASE}/api/buscar?q=${encodeURIComponent(ref)}`,
+    `${BASE}/buscar?term=${encodeURIComponent(ref)}`,
+    `${BASE}/?search=${encodeURIComponent(ref)}`,
+    `${BASE}/api/stock?producto=${encodeURIComponent(ref)}`
+  ];
+  for(let url of rutas){
+    try{
+      const res=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0','Cookie':cookie,'Referer':BASE+'/','Accept':'*/*'}});
+      const txt=await res.text();
+      const precio=extraePrecio(txt, txt);
+      if(precio>0){
+        console.log(ref,'encontrado en',url,'->',precio);
+        return precio;
+      }
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,200));
+  }
   return 0;
 }
 
 const cookie=await login();
 
-let { data: existentes, error } = await supabase.from('productos_maestro').select('*').ilike('proveedor','%MBR%').limit(500);
-if(error) console.error('select error', error.message);
-console.log('existentes MBR en DB:', existentes?.length||0);
+let {data:shop} = await (async()=>{
+  try{
+    let r=await fetch('https://www.mbr.com.co/products.json?limit=250&page=1');
+    return {data:await r.json()};
+  }catch{ return {data:{products:[]}} }
+})();
 
-if(!existentes || existentes.length===0){
-  console.log('No hay MBR en DB, insertando 1 de prueba para que no falle');
-  existentes=[{referencia:'MBR-TEST',nombre:'CAMISETA MBR',talla:'M',precio:80000,stock:12,imagen_original:'',imagen_sin_fondo:'',proveedor:'MBR - MÁXIMA'}];
+if(!shop.products || shop.products.length===0){
+  let {data:exist}=await supabase.from('productos_maestro').select('*').ilike('proveedor','%MBR%').limit(500);
+  console.log('Shopify fallo, usando DB:',exist?.length||0);
+  shop={products:[]};
 }
 
 let out=[];
-for(const p of existentes){
-  let precio=p.precio||0;
-  // Si ya tiene precio >0 lo respetamos, si es 0 vamos a Estock
-  if((!precio || precio===0) && cookie){
-    try{
-      const html=await (await fetch(`${BASE}/request?product=${encodeURIComponent(p.referencia)}`,{headers:{'User-Agent':'Mozilla/5.0', Cookie:cookie}})).text();
-      const encontrado = parsePrecio(html);
-      if(encontrado){ 
-        precio=encontrado; 
-        console.log(p.referencia,'-> precio estock',precio); 
-      } else {
-        console.log(p.referencia,'-> no encontro precio, deja 80000');
-        precio = 80000;
-      }
-    }catch(e){ 
-      console.log('estock fail',p.referencia,e.message); 
-      precio = p.precio || 80000;
-    }
-    await new Promise(r=>setTimeout(r,350));
+for(let p of (shop.products||[])){
+  let v=p.variants[0];
+  let ref=(v.sku||p.handle).toUpperCase();
+  let precio=parseFloat(v.price||0);
+  if(!precio){
+    precio=await getPrecioEstock(ref, cookie);
   }
-  if(!precio || precio < 1000) precio = 80000;
-  out.push({...p, precio, stock:12, proveedor:'MBR - MÁXIMA'});
+  // ULTIMO INTENTO: si sigue 0, busca por nombre
+  if(!precio){
+    precio=await getPrecioEstock(p.title, cookie);
+  }
+  if(!precio){
+    console.log(ref,'*** SIN PRECIO ESTOCK, SE QUEDA 0 - REVISAR MANUAL ***');
+  }
+  out.push({
+    referencia:ref,
+    nombre:p.title,
+    talla:'M',
+    precio:precio, // si es 0 lo veras en logs, pero intentara todas las rutas
+    stock:12,
+    imagen_original:p.images[0]?.src||'',
+    imagen_sin_fondo:p.images[0]?.src||'',
+    proveedor:'MBR - MÁXIMA'
+  });
+  await new Promise(r=>setTimeout(r,300));
 }
 
 for(let i=0;i<out.length;i+=100){
-  const {error}=await supabase.from('productos_maestro').upsert(out.slice(i,i+100),{onConflict:'referencia'});
-  if(error) console.log('upsert error',error.message);
-  else console.log(`upsert ${i} - ${Math.min(i+100,out.length)} OK`);
+  let {error}=await supabase.from('productos_maestro').upsert(out.slice(i,i+100),{onConflict:'referencia'});
+  if(error) console.log('upsert err',error.message);
 }
-console.log('LISTO',out.length, `con precio >0: ${out.filter(x=>x.precio>0).length}`);
+console.log('LISTO total',out.length,'con precio',out.filter(x=>x.precio>0).length,'en 0',out.filter(x=>x.precio===0).length);
