@@ -8,15 +8,5 @@ jobs:
   scan-mbr:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Instalar dependencias
-        run: npm install @supabase/supabase-js ws
-      - name: Escanear MBR - 197 productos
-        run: node scan-mbr.mjs
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      - name: Llamar a Vercel para scan MBR
+        run: curl -s "https://stockos-v9.vercel.app/api/scan-mbr?secret=stockos2024"
