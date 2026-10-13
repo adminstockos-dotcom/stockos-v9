@@ -1,9 +1,6 @@
 {
-  "crons": [
-    { "path": "/api/scan-mbr?proveedor=MBR", "schedule": "30 8 * * *" },
-    { "path": "/api/scan-mbr?proveedor=MBR", "schedule": "30 14 * * *" }
-  ],
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "crons": [{
+    "path": "/api/scan-mbr",
+    "schedule": "30 13 * * *"
+  }]
 }
