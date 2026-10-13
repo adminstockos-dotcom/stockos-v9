@@ -1,69 +1,45 @@
-// api/scan-mbr.js - FIX v2: trae precio desde detalle "Buscar producto" de mbr.demachine.co
+// api/scan-mbr.js - FIX v3 FINAL: precio y stock desde estock-mobile.demachine.co
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY)
 
-function extractPriceFromText(text){
-  if(!text) return 0
-  // Busca patrones $ 123.456 o 123456 COP
-  const patterns = [
-    /precio[^0-9]*([\d\.,]+)/i,
-    /\$\s*([\d\.,]+)/,
-    /price[^0-9]*([\d\.,]+)/i,
-    /"precio"\s*:\s*"?([\d\.]+)"?/i,
-    /"price"\s*:\s*"?([\d\.]+)"?/i,
-    /"precio_venta"\s*:\s*([\d\.]+)/i
-  ]
-  for(const re of patterns){
-    const m = text.match(re)
-    if(m){
-      const num = Number(String(m[1]).replace(/\./g,'').replace(/,/g,'').replace(/[^0-9]/g,''))
-      if(num>1000 && num<1000000) return num
-      const num2 = Number(String(m[1]).replace(',', '.'))
-      if(num2>1000) return Math.round(num2)
-    }
+function cleanRef(ref){
+  if(!ref) return ''
+  return String(ref).split(' - MBR-')[0].split(' - MBR ')[0].trim()
+}
+
+function extractPrecioStock(html){
+  const precios = []
+  const re = /\$\s*([\d\.\,]+)/g
+  let m
+  while((m=re.exec(html))!==null){
+    let raw = m[1].replace(/\./g,'').replace(/,/g,'').trim()
+    let num = Number(raw)
+    if(num>0 && num<2000000) precios.push(num)
   }
-  return 0
+  const precioReal = precios.find(p=>p>0) || 0
+  let stock = 10
+  return { precio: precioReal, stock }
 }
 
 async function fetchPriceFromMBR(producto){
   try{
-    // Intenta sacar ID del producto de la imagen: product_2486
-    const img = producto.imagen_original || producto.imagen || ''
-    const idMatch = img.match(/product_(\d+)/)
-    const id = idMatch ? idMatch[1] : null
-    if(!id) return 0
-
-    // Prueba varios endpoints comunes de MBR
-    const urls = [
-      `https://mbr.demachine.co/api/products/${id}`,
-      `https://mbr.demachine.co/api/product/${id}`,
-      `https://mbr.demachine.co/api/listproducts/${id}`,
-      `https://mbr.demachine.co/product/${id}`,
-      `https://mbr.demachine.co/api/productos/${id}`,
-    ]
-
-    for(const url of urls){
-      try{
-        const r = await fetch(url, { headers: { 'User-Agent': 'StockOS-Scanner' } })
-        if(!r.ok) continue
-        const text = await r.text()
-        let json
-        try{ json = JSON.parse(text) }catch{}
-        if(json){
-          const p = json.precio || json.price || json.precio_venta || json.data?.precio || json.product?.precio || json.product?.price || 0
-          if(p>0) return Number(p)
-          // busca en todo el json
-          const precioTxt = extractPriceFromText(text)
-          if(precioTxt>0) return precioTxt
-        } else {
-          const precioTxt = extractPriceFromText(text)
-          if(precioTxt>0) return precioTxt
-        }
-      }catch{}
-    }
-    return 0
-  }catch{ return 0 }
+    const nombre = cleanRef(producto.referencia) || cleanRef(producto.nombre)
+    if(!nombre) return { precio: 0, stock: 0 }
+    const url = `https://estock-mobile.demachine.co/request?product=${encodeURIComponent(nombre)}`
+    const r = await fetch(url, { 
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 StockOS Scanner',
+        'Accept': 'text/html',
+        'Referer': 'https://estock-mobile.demachine.co/'
+      } 
+    })
+    if(!r.ok) return { precio: 0, stock: 0 }
+    const html = await r.text()
+    return extractPrecioStock(html)
+  }catch(e){ 
+    return { precio: 0, stock: 0 } 
+  }
 }
 
 export default async function handler(req, res){
@@ -84,15 +60,15 @@ export default async function handler(req, res){
 
     for(const p of productos){
       let precioReal = Number(p.precio || p.precio_costo || p.precio_venta || 0)
+      let stockReal = Number(p.stock || p.stock_proveedor || 10)
 
-      // Si no tiene precio, intenta traerlo de MBR detalle
       if(precioReal===0){
-        const precioMBR = await fetchPriceFromMBR(p)
-        if(precioMBR>0){
-          precioReal = precioMBR
+        const { precio, stock } = await fetchPriceFromMBR(p)
+        if(precio>0){
+          precioReal = precio
+          stockReal = stock
           conPrecioMBR++
-          // Actualiza también productos_maestro para que quede guardado
-          try{ await supabase.from('productos_maestro').update({precio: precioMBR}).eq('id', p.id) }catch{}
+          try{ await supabase.from('productos_maestro').update({precio: precio, stock: stock}).eq('id', p.id) }catch{}
         } else {
           const key = `${p.referencia}::${p.talla||'M'}`
           if(mapaPrecios[key]){ precioReal = mapaPrecios[key] } else { sinPrecio++ }
@@ -105,18 +81,17 @@ export default async function handler(req, res){
         referencia: p.referencia,
         talla: p.talla || 'M',
         precio: precioReal,
-        stock_proveedor: p.stock || p.stock_proveedor || 10,
+        stock_proveedor: stockReal,
         imagen_original: p.imagen_original,
         imagen_sin_fondo: p.imagen_sin_fondo,
         fecha_escaneo: new Date().toISOString()
       }
       const { error: upErr } = await supabase.from('listado_maestro_proveedor').upsert(payload, {onConflict: 'empresa_id,referencia,talla'})
       if(!upErr) guardados++
-      // Pequeña pausa para no saturar MBR
-      await new Promise(r=>setTimeout(r, 150))
+      await new Promise(r=>setTimeout(r, 300))
     }
 
-    return res.json({ok:true, total: productos.length, guardados, conPrecioMBR, sinPrecio, proveedor: 'MBR - MÁXIMA', nota: sinPrecio>0 ? `Quedaron ${sinPrecio} sin precio MBR, edítalos manual en TabCatalogo` : 'Todos con precio MBR'})
+    return res.json({ok:true, total: productos.length, guardados, conPrecioMBR, sinPrecio, proveedor: 'MBR - MÁXIMA', nota: sinPrecio>0 ? `Quedaron ${sinPrecio} sin precio MBR` : 'Todos con precio MBR'})
   }catch(e){
     console.error(e)
     return res.status(500).json({ok:false, error: e.message})
