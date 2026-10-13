@@ -1,92 +1,138 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-import ws from 'ws';
-global.WebSocket = ws;
-import { createClient } from '@supabase/supabase-js';
+#!/usr/bin/env node
+// scan-mbr.mjs FINAL v3 - trae precio real $65000/$90000 desde MBR Stock
+// Usa MBR_BEARER_TOKEN si existe, si no intenta login con MBR_USER/MBR_PASS
+import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {auth:{persistSession:false}});
-const BASE='https://estock-mobile.demachine.co';
-const INST=process.env.ESTOCK_INSTANCIA || 'MBR';
-const USU=process.env.ESTOCK_USUARIO;
-const PAS=process.env.ESTOCK_PASSWORD;
+const API_BASE = 'https://mbr.demachine.co/api/requests/indexMe'
+const LOGIN_URLS = [
+  'https://mbr.demachine.co/api/login',
+  'https://mbr.demachine.co/api/auth/login',
+  'https://mbr.demachine.co/api/users/login',
+  'https://mbr.demachine.co/login'
+]
 
-async function login(){
-  const initRes = await fetch(`${BASE}/`, {headers:{'User-Agent':'Mozilla/5.0'}});
-  const initC = initRes.headers.get('set-cookie')||'';
-  await initRes.text();
-  const r = await fetch(`${BASE}/login`,{
-    method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0','Cookie':initC},
-    body:`instancia=${encodeURIComponent(INST)}&usuario=${encodeURIComponent(USU)}&contrasena=${encodeURIComponent(PAS)}&password=${encodeURIComponent(PAS)}`,
-    redirect:'manual'
-  });
-  const cookies = r.headers.getSetCookie? r.headers.getSetCookie() : [r.headers.get('set-cookie')].filter(Boolean);
-  const c=[initC,...cookies].join('; ');
-  console.log('LOGIN status',r.status,'cookies',c.length);
-  return c;
-}
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {auth:{persistSession:false}})
 
-function parsePrecio(text){
-  if(!text) return 0;
-  const s = typeof text === 'string'? text : JSON.stringify(text);
-
-  // 1. Intenta JSON
-  try{
-    const j = JSON.parse(s);
-    const str = JSON.stringify(j);
-    const m = str.match(/"(precio|price|valor|precio_venta)"\s*:\s*"?([\d\.,]+)"?/i);
-    if(m){
-      let n = parseInt(m[2].replace(/[^\d]/g,''),10);
-      if(n>=5000) return n;
-    }
-    // busca cualquier numero grande en el JSON
-    const nums = [...str.matchAll(/(\d{5,6})/g)].map(x=>parseInt(x[1],10)).filter(n=>n>=10000 && n<=600000);
-    if(nums.length) return nums[0];
-  }catch{}
-
-  // 2. Regex original + mas variantes
-  let m = s.match(/"precio[^"]*"\s*:\s*"?([\d\.\,]+)"?/i);
-  if(m){ let n=parseInt(m[1].replace(/[^\d]/g,''),10); if(n>=5000) return n; }
-
-  const ms=[...s.matchAll(/\$\s*([\d\.\,]+)/g)];
-  for(const mm of ms){ let n=parseInt(mm[1].replace(/[^\d]/g,''),10); if(n>=10000 && n<=600000) return n; }
-
-  // 3. Busca en HTML: > 45000 <
-  const htmlNums=[...s.matchAll(/>\s*([\d]{2,3}[\.\,][\d]{3}|\d{5,6})\s*</g)].map(x=>parseInt(x[1].replace(/[^\d]/g,''),10)).filter(n=>n>=10000 && n<=600000);
-  if(htmlNums.length) return htmlNums[0];
-
-  return 0;
-}
-
-const cookie=await login();
-let {data:todos} = await supabase.from('productos_maestro').select('referencia,precio').limit(1000);
-console.log('Productos en DB:',todos?.length||0);
-
-let updates=[];
-let sinPrecio=[];
-
-for(let idx=0; idx<todos.length; idx++){
-  const p=todos[idx];
-  let precio=p.precio||0;
-  if(!precio || precio===0){
-    try{
-      const url=`${BASE}/request?product=${encodeURIComponent(p.referencia)}`;
-      const res=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json, text/html','Cookie':cookie}});
-      const txt=await res.text();
-      const found=parsePrecio(txt);
-      if(idx<3) console.log(`DEBUG ${p.referencia} status ${res.status} len ${txt.length} found ${found} preview ${txt.slice(0,400)}`);
-      if(found>0){ precio=found; console.log(p.referencia,'->',precio); }
-    }catch(e){ console.log('fail',p.referencia,e.message); }
-    await new Promise(r=>setTimeout(r,300));
+async function getBearer(){
+  let bearer = process.env.MBR_BEARER_TOKEN
+  if(bearer && bearer.length > 20){
+    console.log('🔑 Usando MBR_BEARER_TOKEN existente')
+    return bearer.replace('Bearer ','').trim()
   }
-  if(!precio) sinPrecio.push(p.referencia);
-  else updates.push({referencia:p.referencia, precio:precio, stock:12});
+  
+  // Intenta login automático
+  const user = process.env.MBR_USER
+  const pass = process.env.MBR_PASS
+  if(!user || !pass){
+    console.error('❌ Falta MBR_BEARER_TOKEN y también MBR_USER/MBR_PASS')
+    console.error('👉 Ve a GitHub > Settings > Secrets > Actions y agrega:')
+    console.error('   MBR_BEARER_TOKEN = tu token de mbr.demachine.co (copia de DevTools > Network > indexMe > Authorization)')
+    console.error('   O MBR_USER y MBR_PASS para login automático')
+    process.exit(1)
+  }
+  
+  console.log(`🔐 Intentando login automático con ${user}`)
+  for(const loginUrl of LOGIN_URLS){
+    try{
+      console.log(` Probando ${loginUrl}`)
+      const r = await fetch(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass, email: user, user, pass })
+      })
+      const text = await r.text()
+      console.log(`  Status ${r.status}: ${text.slice(0,300)}`)
+      if(r.ok){
+        try{
+          const j = JSON.parse(text)
+          const token = j.token || j.access_token || j.bearer || j.data?.token
+          if(token){
+            console.log('✅ Login OK, token obtenido')
+            return token
+          }
+        }catch{}
+      }
+    }catch(e){ console.log(`  Error ${e.message}`) }
+  }
+  
+  console.error('❌ No se pudo hacer login automático, usa MBR_BEARER_TOKEN manual')
+  process.exit(1)
 }
 
-console.log(`Para actualizar: ${updates.length} / ${todos.length} sin: ${sinPrecio.length}`);
-
-for(let i=0;i<updates.length;i+=100){
-  const {error}=await supabase.from('productos_maestro').upsert(updates.slice(i,i+100),{onConflict:'referencia'});
-  if(error) console.log('upsert error',error.message);
-  else console.log(`upsert ${i}-${i+100} OK`);
+async function fetchPage(bearer, page, maxPerPage=100){
+  const url = `${API_BASE}?page=${page}&maxPerPage=${maxPerPage}`
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${bearer}`, 'Accept': 'application/json' }
+  })
+  if(!res.ok){ 
+    const txt = await res.text()
+    if(res.status===401){
+      console.error('❌ Bearer expirado - renueva el token en GitHub Secrets')
+    }
+    throw new Error(`API ${res.status}: ${txt.slice(0,500)}`) 
+  }
+  const json = await res.json()
+  return json.data
 }
-console.log('=== LISTO ===');
+
+async function main(){
+  const bearer = await getBearer()
+  console.log('🔍 MBR API:', API_BASE)
+  let page=1, pages=1, total=0
+  do{
+    const data = await fetchPage(bearer, page, 100)
+    pages = data.info?.pages || 1
+    const results = data.results || []
+    console.log(`📄 Page ${page}/${pages} - ${results.length} productos - Total MBR: ${data.info?.count}`)
+    
+    if(results.length){
+      const upserts = results.map(r=>({
+        referencia: r.product?.trim(),
+        nombre: r.product,
+        precio: parseInt(r.price,10), // ESTE ES EL $65000 / $90000 REAL
+        stock: parseInt(r.quantity,10) || 1,
+        talla: r.size,
+        color: r.color,
+        marca: r.brand,
+        codigo: r.code,
+        product_id: r.product_id,
+        warehouse: r.warehouse,
+        username: r.username,
+        mbr_id: r.id,
+        imagen: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null,
+        imagen_original: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null,
+        updated_at: new Date().toISOString()
+      }))
+      
+      let { error } = await supabase.from('productos_maestro').upsert(upserts, {onConflict:'referencia'})
+      if(error){
+        console.log('productos_maestro upsert falló, probando requests:', error.message)
+        const { error: e2 } = await supabase.from('requests').upsert(
+          results.map(r=>({
+            id: r.id,
+            product: r.product,
+            product_id: r.product_id,
+            price: parseInt(r.price,10),
+            brand: r.brand,
+            code: r.code,
+            color: r.color,
+            size: r.size,
+            quantity: parseInt(r.quantity,10),
+            warehouse: r.warehouse,
+            username: r.username,
+            status: r.status,
+            created_at: r.created_at,
+            image_src: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null
+          })), {onConflict:'id'}
+        )
+        if(e2) throw e2
+      }
+      total += results.length
+      console.log(`✅ ${results[0].product} $${results[0].price} x${results.length}`)
+    }
+    page++
+  }while(page<=pages)
+  console.log(`\n🎉 LISTO - ${total} productos con precio real MBR sincronizados`)
+}
+
+main().catch(e=>{ console.error('💥', e.message); process.exit(1) })
