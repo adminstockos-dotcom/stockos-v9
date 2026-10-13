@@ -211,7 +211,7 @@ export default function TabCatalogo({ empresa }) {
                     <div className="flex flex-wrap gap-2 items-end justify-between">
                       <div>
                         <div className="text-[11px] font-black uppercase">VENTANA VALOR / INCREMENTO - {p.nombre}</div>
-                        <div className="text-[10px] text-gray-600 mt-1">En la tabla de abajo, cada producto tiene: Precio Proveedor | <b>+ Incremento COP</b> (al lado) | = Precio Venta Público. Para lotes usa esto:</div>
+                        <div className="text-[10px] text-gray-600 mt-1">Flujo automático: <b>Precio Proveedor (MBR Stock)</b> + <b>Incremento COP</b> = <b>Precio Venta Público Máxima</b> | Stock se actualiza automático desde MBR.</div>
                       </div>
                       <div className="flex gap-2 items-end flex-wrap">
                         <div><label className="text-[10px] font-bold block">Tipo lote</label><select value={c.tipo} onChange={e=>setCfgProv(p.nombre,{tipo:e.target.value})} className="border p-2 rounded text-xs font-bold bg-white"><option value="COP">$ COP a sumar</option><option value="PORC">% a sumar</option><option value="FIJO">Precio fijo público</option></select></div>
@@ -234,10 +234,10 @@ export default function TabCatalogo({ empresa }) {
                             <th className="p-2 text-left">Foto</th>
                             <th className="p-2 text-left">Referencia</th>
                             <th className="p-2 text-left">Talla</th>
-                            <th className="p-2 text-left">Precio Proveedor</th>
-                            <th className="p-2 text-left bg-orange-100">+ Incremento (COP) AL LADO</th>
+                            <th className="p-2 text-left">Precio Proveedor (MBR Stock)</th>
+                            <th className="p-2 text-left bg-orange-100">Incremento COP</th>
                             <th className="p-2 text-left bg-green-100">Precio Venta Público Máxima</th>
-                            <th className="p-2 text-left">Stock</th>
+                            <th className="p-2 text-left">Stock MBR</th>
                           </tr>
                         </thead>
                         <tbody>
