@@ -11,9 +11,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Instalar dependencias
-        run: npm install @supabase/supabase-js
+        run: npm install @supabase/supabase-js ws
       - name: Escanear MBR - 197 productos
         run: node scan-mbr.mjs
         env:
