@@ -90,22 +90,22 @@ export default function TabCatalogo({ empresa }) {
   const buscarMaestro = (refCompleta) => {
     if(!refCompleta) return null
     if(maestroFotos[refCompleta]) return maestroFotos[refCompleta]
-    // Buscar por codigo corto ej: MBR-1197 dentro de "PUMA CLUB ... - MBR-1197"
-    const partes = String(refCompleta).split('-')
-    const corto = partes[partes.length-1]?.trim() ? `MBR-${partes[partes.length-1].trim().replace('MBR','').trim()}` : null
-    // Intenta exacto corto
+    const clean = String(refCompleta).split(' - MBR-')[0].split(' - MBR ')[0].trim()
+    if(clean && maestroFotos[clean]) return maestroFotos[clean]
     const codigo = refCompleta.match(/MBR-\d+/i)?.[0]
     if(codigo && maestroFotos[codigo]) return maestroFotos[codigo]
-    // Busca por incluye
+    // Busca por incluye limpio - esto extrae de MBR Stock
     for(const k of Object.keys(maestroFotos)){
-      if(refCompleta.includes(k) || k.includes(refCompleta) || (codigo && k.includes(codigo))) return maestroFotos[k]
+      const kClean = String(k).split(' - MBR-')[0].trim()
+      if(refCompleta.includes(k) || k.includes(refCompleta) || refCompleta.includes(kClean) || kClean.includes(clean) || (codigo && k.includes(codigo))) return maestroFotos[k]
     }
     return null
   }
-  const getImg = (it) => it.imagen_sin_fondo || it.imagen_original || buscarMaestro(it.referencia)?.imagen_sin_fondo || buscarMaestro(it.referencia)?.imagen_original || maestroFotos[it.referencia]?.imagen_sin_fondo
+  const getImg = (it) => it.imagen_sin_fondo || it.imagen_original || buscarMaestro(it.referencia)?.imagen_sin_fondo || buscarMaestro(it.referencia)?.imagen_original || buscarMaestro(it.referencia)?.imagen || maestroFotos[it.referencia]?.imagen_sin_fondo
   const getCosto = (it) => {
     const m = buscarMaestro(it.referencia)
-    const raw = it.precio || it.precio_costo || it.precio_proveedor || m?.precio || m?.precio_costo || m?.precio_venta || m?.precio_original || 0
+    // Precio viene de MBR Stock automatico: listado.precio o maestro.precio o maestro.price
+    const raw = it.precio || it.price || it.precio_costo || it.precio_proveedor || m?.precio || m?.price || m?.precio_costo || m?.precio_venta || m?.precio_original || 0
     return Number(raw||0)
   }
   const getIncremento = (ref) => Number(incrementos[ref] || 0)
@@ -247,32 +247,28 @@ export default function TabCatalogo({ empresa }) {
                             const inc=getIncremento(it.referencia)
                             const venta=getVentaPublica(it)
                             const isSel=sel.has(it.referencia)
-                            const rawPrice = it.precio || buscarMaestro(it.referencia)?.precio || 0
+                            const maestro = buscarMaestro(it.referencia)
+                            const rawPrice = costo
                             return(
                               <tr key={i} className={`border-t ${isSel?'bg-orange-50':''} ${rawPrice===0?'bg-red-50':''}`}>
                                 <td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(p.nombre, it.referencia, e.target.checked)}/></td>
                                 <td className="p-1">{img?<img src={img} className="h-10 w-10 object-contain bg-white"/>:<span className="text-gray-400">—</span>}</td>
                                 <td className="p-2 font-bold text-[10px]">{it.referencia}</td>
                                 <td className="p-2">{it.talla}</td>
-                                <td className="p-2">
-                                  <input type="number" value={it.precio===0?'':it.precio} onChange={async e=>{
-                                    const v=Number(e.target.value)||0
-                                    const newList=[...listado]; newList[i]={...it, precio:v}; setListado(newList)
-                                    try{ await supabase.from('listado_maestro_proveedor').update({precio:v}).eq('id', it.id) }catch{}
-                                    try{ const m=buscarMaestro(it.referencia); if(m?.id) await supabase.from('productos_maestro').update({precio:v}).eq('id', m.id) }catch{}
-                                  }} placeholder="0" className={`border-2 ${rawPrice===0?'border-red-400 bg-red-50':'border-gray-300'} rounded px-2 py-1 w-28 text-xs font-black`}/>
-                                  {rawPrice===0 && <div className="text-[9px] text-red-600 font-bold">SIN PRECIO - edita</div>}
-                                  {rawPrice>0 && <div className="text-[9px] text-gray-500">${costo.toLocaleString('es-CO')}</div>}
+                                <td className="p-2 bg-blue-50">
+                                  <div className={`font-black text-sm ${rawPrice===0?'text-red-600':'text-blue-800'}`}>{rawPrice===0 ? '$0 - esperando MBR' : `$${costo.toLocaleString('es-CO')}`}</div>
+                                  {maestro && <div className="text-[8px] text-gray-500 truncate max-w-[120px]" title={maestro.nombre||maestro.referencia}>{maestro.marca||''} {maestro.warehouse||'BODEGA'} - auto MBR</div>}
+                                  {rawPrice===0 && <div className="text-[8px] text-red-500">El scan 8:30/14:30 lo trae de estock-mobile</div>}
                                 </td>
                                 <td className="p-2 bg-orange-50">
-                                  <input type="number" value={incrementos[it.referencia]!==undefined? incrementos[it.referencia] : ''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="0" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/>
-                                  <div className="text-[9px] text-gray-500 mt-0.5">COP a sumar</div>
+                                  <input type="number" value={incrementos[it.referencia]!==undefined? incrementos[it.referencia] : ''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="Ej: 25000" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/>
+                                  <div className="text-[9px] text-gray-500 mt-0.5">COP que sumas tú</div>
                                 </td>
                                 <td className="p-2 bg-green-50">
                                   <div className="font-black text-green-700 text-sm">${venta.toLocaleString('es-CO')}</div>
                                   <div className="text-[9px] text-gray-600">{costo.toLocaleString('es-CO')} + {inc.toLocaleString('es-CO')} = público</div>
                                 </td>
-                                <td className="p-2">{it.stock_proveedor}</td>
+                                <td className="p-2 text-center font-bold">{it.stock_proveedor || maestro?.stock || maestro?.quantity || 10}</td>
                               </tr>
                             )
                           })}
