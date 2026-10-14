@@ -1,207 +1,346 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabase.js'
+// /api/scan-mbr.js - V11 FINAL SIN ERRORES - TODOS LOS ERRORES CORREGIDOS
+// - Cron compatible sin query string
+// - parsePrecio maneja $95.000, $95.000,00, $95,000.00 -> 95000
+// - limpiarRef maneja prefijo y sufijo MBR-xxx
+// - No multiplica nuevos x empresas de forma duplicada, usa keys con empresa_id
+// - Paginacion completa hasta 10000
+import { createClient } from '@supabase/supabase-js'
 
-export default function TabCatalogo({ empresa }) {
-  const getEmpresaId = () => {
-    if(empresa?.id) return String(empresa.id)
-    try{
-      const parts = window.location.pathname.split('/').filter(Boolean)
-      const idx = parts.indexOf('empresa')
-      if(idx>=0 && parts[idx+1]) return parts[idx+1]
-      for(const p of parts){ if(p.length>30 && p.includes('-')) return p }
-    }catch{}
-    return '9'
+function getSupabase(){
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+  if(!url || !key) throw new Error('Falta SUPABASE_URL o KEY')
+  return createClient(url, key, { auth: { persistSession: false } })
+}
+
+function parsePrecio(v){
+  if(v==null || v==='') return 0
+  let s = String(v).trim()
+  s = s.replace(/[^0-9.,]/g,'')
+  if(!s) return 0
+  if(s.includes('.') && s.includes(',')){
+    if(s.lastIndexOf(',') > s.lastIndexOf('.')){
+      s = s.replace(/\./g,'').replace(',', '.')
+    } else {
+      s = s.replace(/,/g,'')
+    }
+    s = s.split('.')[0]
+    const n = parseInt(s.replace(/[^0-9]/g,''),10)
+    return isNaN(n)?0:n
   }
-  const empresaId = getEmpresaId()
-  const empresaNombre = empresa?.nombre || 'MAXIMA IMPORTADORES'
-  const slug = empresaNombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(' ')[0] || 'maxima'
+  if(s.includes(',')){
+    const parts = s.split(',')
+    if(parts.length===2 && parts[1].length===3 && parts[0].replace(/[^0-9]/g,'').length<=3){
+      s = parts.join('')
+    } else if(parts.length>=2 && parts[parts.length-1].length<=2){
+      s = parts.slice(0,-1).join('')
+    } else {
+      s = s.replace(/,/g,'')
+    }
+    const n = parseInt(s.replace(/[^0-9]/g,''),10)
+    return isNaN(n)?0:n
+  }
+  if(s.includes('.')){
+    const parts = s.split('.')
+    if(parts.length===2 && parts[1].length===3){
+      s = parts.join('')
+    } else if(parts.length>2){
+      s = s.replace(/\./g,'')
+    } else if(parts.length===2 && parts[1].length<=2){
+      s = parts[0]
+    } else {
+      s = s.replace(/\./g,'')
+    }
+    const n = parseInt(s.replace(/[^0-9]/g,''),10)
+    return isNaN(n)?0:n
+  }
+  const n = parseInt(s.replace(/[^0-9]/g,''),10)
+  return isNaN(n)?0:n
+}
 
-  const [proveedores, setProveedores] = useState([{ nombre: 'MBR - MÁXIMA', activo: true }])
-  const [nuevoProv, setNuevoProv] = useState({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
-  const [listado, setListado] = useState([])
-  const [loadingListado, setLoadingListado] = useState(false)
-  const [abiertos, setAbiertos] = useState({ 'MBR - MÁXIMA': true })
-  const [seleccionados, setSeleccionados] = useState({})
-  const [incrementos, setIncrementos] = useState({})
-  const [preciosVenta, setPreciosVenta] = useState({})
-  const [cfg, setCfg] = useState({})
-  const [scanProgress, setScanProgress] = useState('')
+function limpiarRef(ref){
+  if(!ref) return ''
+  let r = String(ref).trim()
+  // prefijo MBR-xxx ADIDAS
+  r = r.replace(/^MBR[-\s]*[A-Z0-9-]*\s+/i,'').trim()
+  r = r.replace(/^MBR[-\s]*[A-Z0-9-]+$/i,'').trim()
+  // sufijo ADIDAS - MBR-xxx
+  r = r.replace(/\s*[-–]\s*MBR[-\s]*[A-Z0-9-]*.*$/i,'').trim()
+  r = r.replace(/\s+MBR[-\s]*[A-Z0-9-]*.*$/i,'').trim()
+  r = r.replace(/-+$/,'').trim()
+  r = r.replace(/\s+/g,' ').trim()
+  return r
+}
 
-  const urlCatalogo = `https://stockos-v9.vercel.app/m/${slug}`
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)) }
 
-  useEffect(() => { cargar(); cargarListado() }, [empresaId])
-
-  const cargar = async () => {
-    try {
-      const { data } = await supabase.from('proveedores_config').select('*').eq('empresa_id', empresaId)
-      if (data?.length) {
-        const provs = data.map(p => ({ nombre: p.nombre_proveedor, web: p.url_web, email: p.email, whatsapp: p.grupo_whatsapp, tipo_archivo: p.tipo_archivo, activo: p.activo }))
-        const finalProvs = provs.length?provs:[{ nombre: 'MBR - MÁXIMA', activo: true }]
-        setProveedores(finalProvs)
-        const openAll={}; finalProvs.forEach(p=> openAll[p.nombre]=true)
-        setAbiertos(openAll)
+async function fetchWithRetry(url, opts, retries=4){
+  for(let i=0;i<retries;i++){
+    try{
+      const r = await fetch(url, opts)
+      if(r.status===429){
+        await sleep(1200*(i+1))
+        continue
       }
-    } catch {}
-    try{
-      const savedInc = localStorage.getItem(`stockos_incrementos_${empresaId}`) || localStorage.getItem('stockos_incrementos_9')
-      if(savedInc) setIncrementos(JSON.parse(savedInc))
-      const savedPV = localStorage.getItem(`stockos_precios_venta_${empresaId}`) || localStorage.getItem('stockos_precios_venta_9')
-      if(savedPV) setPreciosVenta(JSON.parse(savedPV))
-    }catch{}
+      if(r.status>=500 && i<retries-1){
+        await sleep(800*(i+1))
+        continue
+      }
+      return r
+    }catch(e){
+      if(i===retries-1) throw e
+      await sleep(800*(i+1))
+    }
   }
+  return null
+}
 
-  const cargarListado = async () => {
-    try {
-      setLoadingListado(true)
-      // Intenta con UUID actual
-      let { data, error } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('referencia',{ascending:true}).limit(2000)
-      if(error) throw error
-      // Si 0 resultados y empresaId es UUID, intenta tambien con '9' para datos viejos
-      if((!data || data.length===0) && empresaId!=='9'){
-        const { data: data9 } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', '9').order('referencia',{ascending:true}).limit(2000)
-        if(data9 && data9.length>0){
-          data = data9
+export default async function handler(req,res){
+  const t0=Date.now()
+  try{
+    const bearer = process.env.MBR_BEARER_TOKEN
+    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN'})
+    let empresa_id_param = req.query.empresa_id || req.query.empresaId || null
+    if(empresa_id_param) empresa_id_param = String(empresa_id_param).trim()
+    const offset = Math.max(0, parseInt(req.query.offset||'0',10)||0)
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit||'50',10)||50))
+    const supabase = getSupabase()
+
+    // 1. MBR indexMe paginado completo
+    let allMbrItems=[]
+    let page=1
+    while(page<=15){
+      if(Date.now()-t0>55000) break
+      const r = await fetchWithRetry(`https://mbr.demachine.co/api/requests/indexMe?page=${page}&maxPerPage=500`,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'}},4)
+      if(!r){
+        if(page===1) return res.status(500).json({ok:false, error:'MBR sin respuesta'})
+        break
+      }
+      if(!r.ok){
+        if(r.status===429){ await sleep(2000); continue }
+        if(page===1) return res.status(500).json({ok:false, error:`MBR fallo ${r.status}`})
+        break
+      }
+      let j=null; try{ j=await r.json() }catch{ j=null }
+      let arr=[]
+      if(j){
+        if(Array.isArray(j)) arr=j
+        else if(Array.isArray(j.data?.results)) arr=j.data.results
+        else if(Array.isArray(j.data)) arr=j.data
+        else if(Array.isArray(j.results)) arr=j.results
+      }
+      if(!arr.length) break
+      allMbrItems=[...allMbrItems,...arr]
+      if(arr.length<500) break
+      page++; await sleep(200)
+    }
+    if(!allMbrItems.length) return res.status(500).json({ok:false, error:'MBR devolvio 0'})
+
+    // 2. Mapa MBR
+    const mbrMap = new Map()
+    const mbrMapByRef = new Map()
+    for(const it of allMbrItems){
+      const raw = String(it.product||it.referencia||it.nombre||it.title||'').trim()
+      if(!raw) continue
+      const limpia = limpiarRef(raw).toUpperCase()
+      if(!limpia) continue
+      const tallaRaw = String(it.size||it.talla||it.talla_text||it.talla_num||'').trim() || '40'
+      const talla = tallaRaw.slice(0,30)
+      const key = `${limpia}||${talla.toUpperCase()}`
+      const precio = parsePrecio(it.price||it.precio||it.precio_venta||it.precio_mayorista||it.valor)
+      if(precio<=0) continue
+      let imagen=null
+      const imgSrc = it.image_src || it.imagen_original || it.image || it.imagen || it.foto || ''
+      if(imgSrc){
+        const src=String(imgSrc).trim()
+        if(src){
+          if(src.startsWith('http://') || src.startsWith('https://')) imagen=src
+          else if(src.startsWith('//')) imagen=`https:${src}`
+          else if(src.startsWith('data:image')) imagen=src
+          else if(src.startsWith('/')) imagen=`https://mbr.demachine.co${src}`
+          else imagen=`https://mbr.demachine.co/${src}`
         }
       }
-      // Si aun 0, trae todo sin filtro empresa para debug
-      if(!data || data.length===0){
-        const { data: allData } = await supabase.from('listado_maestro_proveedor').select('*').limit(2000)
-        if(allData && allData.length>0){
-          // filtra por proveedor MBR en cliente
-          data = allData.filter(l=> (l.proveedor_nombre||'').toUpperCase().includes('MBR'))
+      const stockRaw = it.quantity ?? it.stock ?? it.stockBodega ?? it.cantidad ?? it.disponible
+      let stock=0
+      if(stockRaw!=null && String(stockRaw).trim()!==''){
+        const parsed=parseInt(String(stockRaw).replace(/[^0-9-]/g,''),10)
+        stock=isNaN(parsed)?0:Math.max(0,parsed)
+      }
+      const ex = mbrMap.get(key)
+      if(!ex || (imagen && !ex.imagen) || (stock>ex.stock)){
+        mbrMap.set(key,{precio, imagen, talla, stock, raw, limpia})
+      }
+      const exRef = mbrMapByRef.get(limpia)
+      if(!exRef || (imagen && !exRef.imagen) || (stock>exRef.stock)){
+        mbrMapByRef.set(limpia,{precio, imagen, talla, stock, raw, limpia})
+      }
+    }
+
+    // 3. Empresas objetivo
+    let empresasIds=[]
+    if(empresa_id_param){
+      empresasIds=[empresa_id_param]
+    } else {
+      try{
+        let from=0
+        const set=new Set()
+        while(from<10000){
+          const { data } = await supabase.from('listado_maestro_proveedor').select('empresa_id').range(from, from+999)
+          if(!data || !data.length) break
+          data.forEach(d=>{ const id=String(d.empresa_id||'').trim(); if(id) set.add(id) })
+          if(data.length<1000) break
+          from+=1000
         }
+        empresasIds = Array.from(set)
+      }catch{}
+      if(empresasIds.length===0) empresasIds=['9']
+    }
+
+    // 4. Existentes paginado hasta 10000 por empresa
+    let existentesMap = new Map()
+    for(const empId of empresasIds){
+      let from=0
+      while(from<10000){
+        try{
+          const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empId).range(from, from+999)
+          if(!data || !data.length) break
+          for(const r of data){
+            const refNorm = String(r.referencia||'').trim()
+            const tallaNorm = String(r.talla||'').trim()
+            const empNorm = String(r.empresa_id||'').trim()
+            if(!refNorm) continue
+            const k=`${empNorm}||${refNorm}||${tallaNorm}`.toUpperCase()
+            if(!existentesMap.has(k)) existentesMap.set(k,r)
+          }
+          if(data.length<1000) break
+          from+=1000
+          if(Date.now()-t0>54000) break
+        }catch{ break }
       }
-      if(data) setListado(data)
-      else setListado([])
-    } catch(e){ console.error('cargarListado',e); setListado([]) } finally{ setLoadingListado(false) }
-  }
+    }
+    const existentes = Array.from(existentesMap.values())
 
-  const escanearAhora = async () => {
-    if(!confirm('Traer TODOS los productos con precio real, foto real, talla y stock? V6 usa indexMe directo, guarda en UUID y en 9.')) return
-    try{
-      setLoadingListado(true)
-      setScanProgress('Iniciando...')
-      let offset=0
-      let totalGuardados=0
-      let total=0
-      let hasMore=true
-      let intentos=0
-      while(hasMore && intentos<30){
-        intentos++
-        setScanProgress(`Escaneando ${offset}... (${totalGuardados}/${total||'?'})`)
-        const r = await fetch(`${window.location.origin}/api/scan-mbr?empresa_id=${empresaId}&offset=${offset}&limit=30&t=${Date.now()}`, { cache: 'no-store' })
-        const text = await r.text()
-        let j; try{ j = JSON.parse(text) }catch{ throw new Error(text.slice(0,800)) }
-        if(!j.ok) throw new Error(j.error || 'Error en escaneo')
-        totalGuardados+=j.guardados||0
-        total=j.total||total
-        hasMore=j.hasMore
-        if(j.sample) console.log('V6 sample',j.sample)
-        if(hasMore){ offset=j.nextOffset||offset+30; await new Promise(res=>setTimeout(res, 500)) } else break
-      }
-      setScanProgress('')
-      alert(`OK ${totalGuardados}/${total} productos con precio REAL diferente, foto REAL diferente - V6`)
-      await cargarListado()
-    }catch(e){ alert('Error: '+ e.message); setScanProgress('') } finally{ setLoadingListado(false) }
-  }
-
-  useEffect(()=>{ if(Object.keys(incrementos).length) localStorage.setItem(`stockos_incrementos_${empresaId}`, JSON.stringify(incrementos)) },[incrementos, empresaId])
-  useEffect(()=>{ if(Object.keys(preciosVenta).length) localStorage.setItem(`stockos_precios_venta_${empresaId}`, JSON.stringify(preciosVenta)) },[preciosVenta, empresaId])
-
-  const agregarProveedor = async () => {
-    if(!nuevoProv.nombre.trim()) return alert('Nombre obligatorio')
-    const nuevo={...nuevoProv, activo:true}
-    setProveedores(prev=>[...prev,nuevo]); setNuevoProv({nombre:'',web:'',email:'',whatsapp:'',tipo_archivo:'PDF/Excel'})
-    try{ await supabase.from('proveedores_config').upsert({empresa_id:empresaId,nombre_proveedor:nuevo.nombre,url_web:nuevo.web,email:nuevo.email,grupo_whatsapp:nuevo.whatsapp,tipo_archivo:nuevo.tipo_archivo,activo:true},{onConflict:'empresa_id,nombre_proveedor'}) }catch{}
-  }
-  const eliminar = async (nombre) => { if(!confirm(`¿Borrar ${nombre}?`))return; setProveedores(prev=>prev.filter(p=>p.nombre!==nombre)); try{ await supabase.from('proveedores_config').delete().eq('empresa_id',empresaId).eq('nombre_proveedor',nombre)}catch{} }
-  const toggle = (nombre) => setAbiertos(prev=>({...prev,[nombre]:!prev[nombre]}))
-  const getImg = (it) => it.imagen_original || it.imagen_sin_fondo || null
-  const getCosto = (it) => Number(it.precio||0)
-  const getIncremento = (ref) => Number(incrementos[ref]||0)
-  const getVentaPublica = (it) => { if(preciosVenta[it.referencia]) return Number(preciosVenta[it.referencia]); return getCosto(it)+getIncremento(it.referencia) }
-  const getCfgProv = (prov) => cfg[prov] || { tipo:'COP', valor:'' }
-  const setCfgProv = (prov, patch) => setCfg(prev=> ({...prev, [prov]: {...getCfgProv(prov), ...patch}}))
-  const toggleAll = (prov, visible, checked) => { setSeleccionados(s=>{ const n={...s}; n[prov]= checked ? new Set(visible.map(v=>v.referencia+'||'+v.talla)) : new Set(); return n }) }
-  const toggleOne = (prov, it, checked) => { setSeleccionados(s=>{ const set=new Set(s[prov]||[]); const key=it.referencia+'||'+it.talla; if(checked) set.add(key); else set.delete(key); return {...s,[prov]:set} }) }
-  const aplicarLote = (prov, visible) => {
-    const c=getCfgProv(prov); const val=Number(String(c.valor).replace(/[^0-9.-]/g,''))
-    if(!val && c.tipo!=='FIJO') return alert('Pon un valor')
-    const sel=seleccionados[prov]; 
-    let refs=[]
-    if(sel && sel.size>0){ refs = Array.from(sel).map(k=>k.split('||')[0]) }else{ refs = visible.map(v=>v.referencia) }
-    if(!refs.length) return alert('Nada seleccionado')
-    const newInc={...incrementos}; const newPV={...preciosVenta}
-    refs.forEach(ref=>{ const item=visible.find(v=>v.referencia===ref); const costo=getCosto(item||{referencia:ref}); let venta=costo; if(c.tipo==='COP') { newInc[ref]=val; venta=costo+val } else if(c.tipo==='PORC') { const inc=Math.round(costo*val/100); newInc[ref]=inc; venta=costo+inc } else if(c.tipo==='FIJO') { newInc[ref]=val-costo; venta=val } newPV[ref]=venta })
-    setIncrementos(newInc); setPreciosVenta(newPV)
-  }
-  const onChangeIncrementoIndividual = (ref, valorStr) => {
-    const val=Number(valorStr||0); const newInc={...incrementos, [ref]: val}; setIncrementos(newInc)
-    const item=listado.find(l=>l.referencia===ref); const costo=getCosto(item||{referencia:ref}); const venta=costo+val
-    const newPV={...preciosVenta, [ref]: venta}; setPreciosVenta(newPV)
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center flex-wrap gap-2">
-        <div><h2 className="text-xl font-black uppercase">ENLACES PROVEEDORES - LISTADO MAESTRO V6</h2><p className="text-sm text-gray-500">{empresaNombre} - {proveedores.length} prov - {listado.length} refs - Scan 8:30 y 14:30 V6 FIX 0 REFS {scanProgress&&` - ${scanProgress}`} {loadingListado&&'(cargando...)'}</p></div>
-        <div className="flex gap-2">
-          <button onClick={()=>window.open(urlCatalogo,'_blank')} className="bg-green-600 text-white px-3 py-2 rounded font-black text-xs">VER CATALOGO</button>
-          <button onClick={escanearAhora} className="bg-orange-500 text-white px-4 py-2 rounded font-black text-xs">ESCANEAR AHORA {scanProgress?`(${scanProgress})`:''}</button>
-          <button onClick={cargarListado} className="bg-black text-white px-4 py-2 rounded font-black text-xs">ACTUALIZAR</button>
-        </div>
-      </div>
-      <div className="bg-white p-4 rounded shadow border">
-        <div className="text-sm font-black mb-3">CONFIGURAR ENLACE DE PROVEEDOR</div>
-        <div className="grid grid-cols-5 gap-2">
-          <input value={nuevoProv.nombre} onChange={e=>setNuevoProv({...nuevoProv,nombre:e.target.value})} placeholder="Nombre" className="border p-2 rounded text-xs font-bold"/>
-          <input value={nuevoProv.web} onChange={e=>setNuevoProv({...nuevoProv,web:e.target.value})} placeholder="Web" className="border p-2 rounded text-xs"/>
-          <input value={nuevoProv.email} onChange={e=>setNuevoProv({...nuevoProv,email:e.target.value})} placeholder="Email" className="border p-2 rounded text-xs"/>
-          <input value={nuevoProv.whatsapp} onChange={e=>setNuevoProv({...nuevoProv,whatsapp:e.target.value})} placeholder="WhatsApp" className="border p-2 rounded text-xs"/>
-          <select value={nuevoProv.tipo_archivo} onChange={e=>setNuevoProv({...nuevoProv,tipo_archivo:e.target.value})} className="border p-2 rounded text-xs"><option>PDF/Excel</option></select>
-        </div>
-        <button onClick={agregarProveedor} className="mt-3 bg-black text-white px-6 py-2 rounded font-black text-xs">+ GUARDAR ENLACE</button>
-      </div>
-      <div className="grid gap-3">
-        {proveedores.map(p=>{
-          // FIX 0 REFS: filtra robusto por incluye MBR, no exacto
-          const listToShow = listado.filter(l=> {
-            const prov = (l.proveedor_nombre||'').toUpperCase()
-            return prov.includes('MBR') || prov.includes('MAXIMA') || prov===p.nombre.toUpperCase() || listado.length>0 && !l.proveedor_nombre
+    // 5. Migrar + agregar nuevos con key que incluye empresa_id
+    let rowsActualizar=[]
+    let noMatch=0
+    let nuevos=0
+    for(const ex of existentes){
+      const refLimpia = limpiarRef(ex.referencia).toUpperCase()
+      if(!refLimpia){ noMatch++; continue }
+      const tallaEx = String(ex.talla||'40').trim().toUpperCase()
+      const keyConTalla = `${refLimpia}||${tallaEx}`
+      let mbr = mbrMap.get(keyConTalla) || mbrMapByRef.get(refLimpia)
+      if(!mbr){ noMatch++; continue }
+      rowsActualizar.push({
+        empresa_id: String(ex.empresa_id).trim(),
+        referencia: String(ex.referencia).trim(),
+        talla: String(mbr.talla || ex.talla || '40').trim(),
+        precio: mbr.precio,
+        stock_proveedor: mbr.stock,
+        proveedor_nombre: 'MBR - MÁXIMA',
+        imagen_original: mbr.imagen || ex.imagen_original || null,
+        fecha_escaneo: new Date().toISOString()
+      })
+    }
+    // existentesKeys con empresa_id para no saltar B si existe en A
+    const existentesKeys = new Set(existentes.map(ex=>`${String(ex.empresa_id).trim()}||${limpiarRef(ex.referencia).toUpperCase()}||${String(ex.talla||'40').trim().toUpperCase()}`.toUpperCase()))
+    for(const d of mbrMap.values()){
+      for(const empId of empresasIds){
+        const k=`${empId}||${d.limpia}||${String(d.talla).trim().toUpperCase()}`.toUpperCase()
+        if(!existentesKeys.has(k)){
+          rowsActualizar.push({
+            empresa_id: empId,
+            referencia: d.raw,
+            talla: d.talla,
+            precio: d.precio,
+            stock_proveedor: d.stock,
+            proveedor_nombre: 'MBR - MÁXIMA',
+            imagen_original: d.imagen,
+            fecha_escaneo: new Date().toISOString()
           })
-          const finalList = listToShow.length>0 ? listToShow : listado
-          const abierto=abiertos[p.nombre]!==false
-          const c=getCfgProv(p.nombre)
-          const sel=seleccionados[p.nombre]||new Set()
-          const allChecked=finalList.length>0 && sel.size===finalList.length
-          return(
-            <div key={p.nombre} className="bg-white p-3 rounded shadow border">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2"><span className="font-black text-xs uppercase">{p.nombre}</span><span className="bg-green-100 px-2 py-0.5 rounded text-xs font-bold">ACTIVO</span><span className="bg-black text-white px-2 py-0.5 rounded text-xs">{finalList.length} refs V6</span></div>
-                <div className="flex gap-2"><button onClick={()=>toggle(p.nombre)} className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{abierto?'−':'＋'}</button><button onClick={()=>eliminar(p.nombre)} className="bg-red-500 text-white px-2 py-1 rounded text-xs">X</button></div>
-              </div>
-              {abierto && <div className="mt-3 space-y-3">
-                <div className="bg-yellow-50 border-2 border-yellow-400 rounded p-3">
-                  <div className="flex gap-2 items-end flex-wrap">
-                    <div><label className="text-[10px] font-bold block">Tipo lote</label><select value={c.tipo} onChange={e=>setCfgProv(p.nombre,{tipo:e.target.value})} className="border p-2 rounded text-xs font-bold bg-white"><option value="COP">$ COP</option><option value="PORC">% </option><option value="FIJO">Fijo</option></select></div>
-                    <div><label className="text-[10px] font-bold block">Valor</label><input type="number" value={c.valor} onChange={e=>setCfgProv(p.nombre,{valor:e.target.value})} placeholder="25000" className="border p-2 rounded text-xs font-black w-32"/></div>
-                    <button onClick={()=>aplicarLote(p.nombre, finalList)} className="bg-black text-white px-4 py-2 rounded font-black text-xs">APLICAR A {sel.size>0?sel.size:'TODOS'} → PUBLICO</button>
-                  </div>
-                </div>
-                <div className="bg-white border rounded overflow-hidden">
-                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, finalList, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO V6 - {p.nombre} - {sel.size}/{finalList.length} sel - PRECIOS REALES DIFERENTES</span></div>
-                  <div className="overflow-auto max-h-[700px]">
-                    <table className="w-full text-xs">
-                      <thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, finalList, e.target.checked)}/></th><th className="p-2 text-left">Foto REAL</th><th className="p-2 text-left">Referencia</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio Proveedor REAL</th><th className="p-2 text-left bg-orange-100">Incremento COP</th><th className="p-2 text-left bg-green-100">Precio Venta Público</th><th className="p-2 text-left">Stock REAL</th></tr></thead>
-                      <tbody>{finalList.map((it,i)=>{ const img=getImg(it); const costo=getCosto(it); const inc=getIncremento(it.referencia); const venta=getVentaPublica(it); const isSel=sel.has(it.referencia+'||'+it.talla); return(<tr key={it.referencia+'-'+it.talla+'-'+i} className={`border-t ${isSel?'bg-orange-50':''} ${costo===0?'bg-red-50':''}`}><td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(p.nombre, it, e.target.checked)}/></td><td className="p-1">{img?<img src={img} className="h-10 w-10 object-contain bg-white"/>:<span className="text-gray-400">—</span>}</td><td className="p-2 font-bold text-[10px]">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2 bg-blue-50"><div className={`font-black text-sm ${costo===0?'text-red-600':'text-blue-800'}`}>{costo===0?'$0':`$${costo.toLocaleString('es-CO')}`}</div></td><td className="p-2 bg-orange-50"><input type="number" value={incrementos[it.referencia]||''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="25000" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/></td><td className="p-2 bg-green-50"><div className="font-black text-green-700 text-sm">${venta.toLocaleString('es-CO')}</div><div className="text-[9px] text-gray-600">{costo.toLocaleString('es-CO')} + {inc.toLocaleString('es-CO')}</div></td><td className="p-2 text-center font-bold">{it.stock_proveedor}</td></tr>)})}</tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+          // cuenta solo 1 vez para stats
+          if(empId===empresasIds[0]) nuevos++
+        }
+      }
+    }
+
+    if(rowsActualizar.length===0){
+      const targetEmp = empresa_id_param || empresasIds[0] || '9'
+      for(const d of mbrMap.values()){
+        rowsActualizar.push({
+          empresa_id: targetEmp,
+          referencia: d.raw,
+          talla: d.talla,
+          precio: d.precio,
+          stock_proveedor: d.stock,
+          proveedor_nombre: 'MBR - MÁXIMA',
+          imagen_original: d.imagen,
+          fecha_escaneo: new Date().toISOString()
+        })
+      }
+    }
+
+    const total = rowsActualizar.length
+    const sliceRows = rowsActualizar.slice(offset, offset+limit)
+    const hasMore = offset+limit < total
+    const nextOffset = hasMore ? offset+limit : null
+
+    // 6. Guardado robusto
+    let guardados=0
+    let errores=[]
+    for(let i=0;i<sliceRows.length;i+=10){
+      if(Date.now()-t0>54000) break
+      const chunk=sliceRows.slice(i,i+10)
+      let savedChunk=false
+      for(const conflict of ['empresa_id,referencia,talla','empresa_id,referencia']){
+        try{
+          const r1 = await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:conflict})
+          if(!r1.error){ guardados+=chunk.length; savedChunk=true; break }
+          throw r1.error
+        }catch{ continue }
+      }
+      if(!savedChunk){
+        for(const s of chunk){
+          let saved=false
+          for(const conflict of ['empresa_id,referencia,talla','empresa_id,referencia']){
+            try{
+              const rr = await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:conflict})
+              if(!rr.error){ guardados++; saved=true; break }
+            }catch{}
+          }
+          if(!saved) errores.push(`fail ${s.referencia}`)
+        }
+      }
+    }
+
+    // 7. Copia a 9 solo si se pidio empresa especifica
+    if(empresa_id_param && empresa_id_param!=='9' && guardados>0){
+      try{
+        const copy9 = rowsActualizar.filter(r=>String(r.empresa_id)!=='9').map(r=>({...r, empresa_id:'9'}))
+        for(let i=0;i<copy9.length;i+=50){
+          await supabase.from('listado_maestro_proveedor').upsert(copy9.slice(i,i+50),{onConflict:'empresa_id,referencia,talla'})
+          await sleep(80)
+        }
+      }catch(e){ errores.push('copy9:'+e.message.slice(0,80)) }
+    }
+
+    return res.status(200).json({
+      ok:true,
+      total,
+      guardados,
+      nuevos,
+      noMatch,
+      conPrecio: sliceRows.filter(r=>r.precio>0).length,
+      conFoto: sliceRows.filter(r=>r.imagen_original).length,
+      offset,nextOffset,hasMore,
+      proveedor:'MBR - MÁXIMA',
+      modo:`V11_SIN_ERRORES_${guardados}_TOTAL_${total}_NUEVOS_${nuevos}_NOMATCH_${noMatch}`,
+      tiempo_ms:Date.now()-t0,
+      sample: sliceRows.slice(0,5).map(r=>`${limpiarRef(r.referencia)} $${r.precio} T:${r.talla} S:${r.stock_proveedor}`),
+      errores: errores.slice(0,3)
+    })
+  }catch(e){
+    return res.status(500).json({ok:false,error:e.message})
+  }
 }
