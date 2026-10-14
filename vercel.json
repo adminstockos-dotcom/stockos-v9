@@ -4,5 +4,10 @@
       "path": "/api/scan-mbr",
       "schedule": "30 13 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "api/scan-mbr.js": {
+      "maxDuration": 30
+    }
+  }
 }
