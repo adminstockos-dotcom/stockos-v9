@@ -72,8 +72,8 @@ export default function TabCatalogo({ empresa }) {
     }finally{ setLoading(false) }
   }
 
-  const escanearAhora = async () => {
-    if(!confirm('V12 FINAL: Traer TODOS los productos con FOTO ORIGINAL, REF ORIGINAL, COLOR, MARCA, TIPO PRODUCTO, STOCK y PRECIOS REALES diferentes?')) return
+  const escanearAhoraNVR = async () => {
+    if(!confirm('NVR PLAYWRIGHT: Login -> 3 rayitas -> Listado de productos -> por cada producto click BUSCAR PRODUCTO para foto HD real, precio real, tallas, colores, stock? (Anti-generico)')) return
     try{
       setLoading(true)
       setProgress('Iniciando...')
