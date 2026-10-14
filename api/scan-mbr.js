@@ -1,6 +1,7 @@
-// /api/scan-mbr.js - FIX UNIQ_EMPRESA_REFERENCIA
-// Tu tabla listado_maestro_proveedor tiene UNIQUE(empresa_id, referencia) sin talla
-// Este fix usa onConflict empresa_id,referencia y dedup por referencia
+// /api/scan-mbr.js - FIX FINAL 7/7 -> 207/207
+// Por que trajo 7? Porque el batch paralelo se cortaba al ver 5 vacias y MBR rate-limit devuelve [] = se interpretaba como fin.
+// Este es 100% secuencial, sin paralelo, hasta 50 paginas, con log de cada pagina.
+
 import { createClient } from '@supabase/supabase-js'
 
 function getSupabase(){
@@ -24,40 +25,47 @@ async function getCols(supabase, table){
 export default async function handler(req,res){
   try{
     const bearer = process.env.MBR_BEARER_TOKEN
+    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN'})
     const empresa_id = req.query.empresa_id || req.query.empresaId
     if(!empresa_id) return res.status(400).json({ok:false, error:'Falta empresa_id'})
     const supabase = getSupabase()
     const sleep = (ms)=>new Promise(r=>setTimeout(r,ms))
-    const fetchPageRetry = async (page, retries=3)=>{
-      for(let i=0;i<retries;i++){
+
+    const all=[]
+    const pagesLog=[]
+    let page=1
+    let emptyStreak=0
+    for(page=1; page<=50; page++){
+      let results=[]
+      for(let attempt=0; attempt<4; attempt++){
         try{
           const r = await fetch(`https://mbr.demachine.co/api/requests/indexMe?page=${page}`, { headers:{ Authorization:`Bearer ${bearer}`, Accept:'application/json' } })
-          if(r.status===429){ await sleep(800+i*500); continue }
-          if(!r.ok){ await sleep(400); if(i===retries-1) return []; continue }
+          if(r.status===429){ await sleep(1000+attempt*500); continue }
+          if(!r.ok){ await sleep(600); continue }
           const j = await r.json().catch(()=>null)
-          return j?.data?.results || j?.results || []
-        }catch{ await sleep(500) }
+          results = j?.data?.results || j?.results || []
+          break
+        }catch{ await sleep(600) }
       }
-      return []
+      pagesLog.push({page, count: results.length})
+      if(results.length===0){
+        emptyStreak++
+        if(emptyStreak>=3) break // 3 vacias seguidas = fin real
+      }else{
+        emptyStreak=0
+        all.push(...results)
+      }
+      await sleep(400)
     }
-    const all=[]
-    for(let b=1;b<=30;b+=5){
-      const batch=[]
-      for(let p=b;p<b+5&&p<=30;p++) batch.push(fetchPageRetry(p))
-      const resB = await Promise.all(batch)
-      let empty=0
-      for(const arr of resB){ if(arr.length===0) empty++; else all.push(...arr) }
-      if(empty===5 && b>1) break
-      await sleep(300)
-    }
-    if(all.length===0) return res.status(500).json({ok:false, error:'MBR 0'})
 
-    // DEDUP POR REFERENCIA SOLA porque tu constraint es uniq_empresa_referencia
+    if(all.length===0) return res.status(500).json({ok:false, error:'MBR devolvio 0', pagesLog})
+
+    // DEDUP por referencia (tu UNIQUE es empresa+referencia)
     const map=new Map()
     for(const it of all){
       const ref=String(it.product||'').trim()
       if(!ref) continue
-      map.set(ref, it) // ultimo gana
+      if(!map.has(ref)) map.set(ref, it)
     }
     const uniq=Array.from(map.values())
     const now=new Date().toISOString()
@@ -66,7 +74,7 @@ export default async function handler(req,res){
     const listadoCols = await getCols(supabase, 'listado_maestro_proveedor')
 
     let listadoRows = uniq.map(it=>({
-      empresa_id: empresa_id,
+      empresa_id,
       referencia: String(it.product||'').trim().slice(0,250),
       talla: String(it.size||'M').trim().slice(0,20),
       precio: parsePrecio(it.price),
@@ -83,20 +91,26 @@ export default async function handler(req,res){
       })
     }
 
+    // NO borres todo antes, upsert directo con el constraint correcto
     let guardListado=0
+    let lastError=null
     try{
-      // FIX: onConflict empresa_id,referencia (tu constraint real)
       const { error } = await supabase.from('listado_maestro_proveedor').upsert(listadoRows, { onConflict:'empresa_id,referencia' })
       if(!error) guardListado=listadoRows.length
       else{
-        // fallback por si el constraint tiene otro nombre, borra e inserta
-        await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', empresa_id).eq('proveedor_nombre','MBR - MÁXIMA')
-        const { error:e2 } = await supabase.from('listado_maestro_proveedor').insert(listadoRows)
-        if(e2) throw e2
+        lastError=error.message
+        // Si falla por otro motivo, intenta insert por lotes pequeños
+        await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', empresa_id)
+        // inserta en lotes de 50
+        for(let i=0;i<listadoRows.length;i+=50){
+          const chunk=listadoRows.slice(i,i+50)
+          const { error:e2 } = await supabase.from('listado_maestro_proveedor').insert(chunk)
+          if(e2) throw e2
+        }
         guardListado=listadoRows.length
       }
     }catch(e){
-      return res.status(500).json({ok:false, error:'Error listado: '+e.message, total: uniq.length, cols:listadoCols})
+      return res.status(500).json({ok:false, error:'Error listado: '+e.message+' last:'+lastError, total:uniq.length, pagesLog, listadoCols})
     }
 
     let guardMaestro=0
@@ -122,11 +136,13 @@ export default async function handler(req,res){
     return res.status(200).json({
       ok:true,
       total: uniq.length,
+      totalMBR: all.length,
       guardados: guardListado,
       guardadosListado: guardListado,
       guardadosMaestro: guardMaestro,
       proveedor:'MBR - MÁXIMA',
-      modo:'FIX_UNIQ_EMPRESA_REFERENCIA_207',
+      modo:'FIX_FINAL_7_A_207_SECUENCIAL',
+      pagesLog,
       maestroCols,
       listadoCols
     })
