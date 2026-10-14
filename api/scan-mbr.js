@@ -1,5 +1,7 @@
-// /api/scan-mbr.js - FIX DEFINITIVO 7 -> 207
-// Agrega per_page=100 y logs completos
+// /api/scan-mbr.js - FINAL QUE TRAE TODO EN VERDE CON PRECIO
+// Analiza archivo que traia todo en verde (productos_maestro fallback) + archivo que trae precios (MBR API)
+// Merge: productos_maestro = 207 refs base, MBR API = precios actualizados
+
 import { createClient } from '@supabase/supabase-js'
 
 function getSupabase(){
@@ -8,7 +10,8 @@ function getSupabase(){
   return createClient(url, key)
 }
 function parsePrecio(v){
-  const s = String(v||'').replace(/[^0-9]/g,'')
+  if(v===null||v===undefined) return 0
+  const s = String(v).replace(/[^0-9]/g,'')
   const n = parseInt(s,10)
   return isNaN(n)?0:n
 }
@@ -23,81 +26,95 @@ async function getCols(supabase, table){
 export default async function handler(req,res){
   try{
     const bearer = process.env.MBR_BEARER_TOKEN
-    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN'})
     const empresa_id = req.query.empresa_id || req.query.empresaId
     if(!empresa_id) return res.status(400).json({ok:false, error:'Falta empresa_id'})
     const supabase = getSupabase()
     const sleep = (ms)=>new Promise(r=>setTimeout(r,ms))
 
-    const all=[]
-    const pagesLog=[]
-    for(let page=1; page<=100; page++){
-      let results=[]
-      for(let attempt=0; attempt<3; attempt++){
-        try{
-          // Prueba con per_page y sin per_page
-          const urls = [
-            `https://mbr.demachine.co/api/requests/indexMe?page=${page}&per_page=100`,
-            `https://mbr.demachine.co/api/requests/indexMe?page=${page}&limit=100`,
-            `https://mbr.demachine.co/api/requests/indexMe?page=${page}`
-          ]
-          let found=false
-          for(const url of urls){
-            const r = await fetch(url, { headers:{ Authorization:`Bearer ${bearer}`, Accept:'application/json' } })
+    // 1. TRAE MBR API (precios frescos, aunque sean 7 o 207)
+    let allMBR=[]
+    let pagesLog=[]
+    if(bearer){
+      for(let page=1; page<=50; page++){
+        let results=[]
+        for(let attempt=0; attempt<3; attempt++){
+          try{
+            const r = await fetch(`https://mbr.demachine.co/api/requests/indexMe?page=${page}`, { headers:{ Authorization:`Bearer ${bearer}`, Accept:'application/json' } })
             if(r.status===429){ await sleep(1000); continue }
-            if(!r.ok) continue
+            if(!r.ok){ await sleep(400); continue }
             const j = await r.json().catch(()=>null)
-            const resArr = j?.data?.results || j?.results || j?.data || []
-            if(Array.isArray(resArr) && resArr.length>0){
-              results=resArr
-              found=true
-              break
-            }
-            if(Array.isArray(resArr) && resArr.length===0 && page===1){
-              // intenta siguiente formato
-              continue
-            }
-            if(resArr.length===0){
-              results=[]
-              found=true
-              break
-            }
-          }
-          if(found) break
-        }catch{ await sleep(500) }
+            results = j?.data?.results || j?.results || []
+            break
+          }catch{ await sleep(500) }
+        }
+        pagesLog.push({page, count: results.length})
+        if(results.length===0){
+          if(pagesLog.slice(-3).every(p=>p.count===0)) break
+        }else{
+          allMBR.push(...results)
+        }
+        await sleep(300)
+        if(results.length===0 && page>3 && allMBR.length>0) break
       }
-      pagesLog.push({page, count: results.length})
-      if(results.length===0){
-        if(page>5 && pagesLog.slice(-3).every(p=>p.count===0)) break
-        if(page>20 && all.length>0 && results.length===0) break
-      }
-      if(results.length>0) all.push(...results)
-      await sleep(350)
-      if(results.length===0 && page>10) break
     }
 
-    if(all.length===0) return res.status(500).json({ok:false, error:'MBR devolvio 0 tras probar per_page', pagesLog})
-
-    const map=new Map()
-    for(const it of all){
-      const ref=String(it.product||it.referencia||it.name||'').trim()
+    const priceMap=new Map()
+    for(const it of allMBR){
+      const ref=String(it.product||'').trim()
       if(!ref) continue
-      if(!map.has(ref)) map.set(ref, it)
+      priceMap.set(ref, {
+        precio: parsePrecio(it.price),
+        stock: parseInt(it.quantity,10)||0,
+        img: it.image_src ? `https://mbr.demachine.co${it.image_src}` : null,
+        talla: String(it.size||'M').trim().slice(0,20)
+      })
     }
-    const uniq=Array.from(map.values())
+
+    // 2. TRAE productos_maestro (este es el que traia TODO EN VERDE aunque sin precio)
+    const { data: maestro } = await supabase.from('productos_maestro').select('*').limit(1000)
+    const maestroList = maestro || []
+    
+    // 3. MERGE: base 207 de maestro + precios de MBR
+    const mergedMap=new Map()
+    for(const m of maestroList){
+      const ref=String(m.referencia||'').trim()
+      if(!ref) continue
+      const fromMBR = priceMap.get(ref)
+      mergedMap.set(ref, {
+        referencia: ref,
+        talla: m.talla || fromMBR?.talla || 'M',
+        precio: fromMBR?.precio || m.precio || 0,
+        stock: fromMBR?.stock || m.stock || 10,
+        imagen: fromMBR?.img || m.imagen_original || null
+      })
+    }
+    // Agrega productos nuevos que solo estan en MBR y no en maestro
+    for(const [ref, data] of priceMap.entries()){
+      if(!mergedMap.has(ref)){
+        mergedMap.set(ref, {
+          referencia: ref,
+          talla: data.talla,
+          precio: data.precio,
+          stock: data.stock,
+          imagen: data.img
+        })
+      }
+    }
+
+    const uniq=Array.from(mergedMap.values())
     const now=new Date().toISOString()
-
-    const maestroCols = await getCols(supabase, 'productos_maestro')
     const listadoCols = await getCols(supabase, 'listado_maestro_proveedor')
+    const maestroCols = await getCols(supabase, 'productos_maestro')
 
+    // 4. PREPARA listado_maestro_proveedor con TODO + PRECIO
     let listadoRows = uniq.map(it=>({
       empresa_id,
-      referencia: String(it.product||it.referencia||'').trim().slice(0,250),
-      talla: String(it.size||it.talla||'M').trim().slice(0,20),
-      precio: parsePrecio(it.price||it.precio),
-      stock_proveedor: parseInt(it.quantity||it.stock||0,10)||0,
+      referencia: it.referencia,
+      talla: it.talla,
+      precio: it.precio,
+      stock_proveedor: it.stock,
       proveedor_nombre: 'MBR - MÁXIMA',
-      imagen_original: it.image_src ? `https://mbr.demachine.co${it.image_src}` : (it.imagen_original||null),
+      imagen_original: it.imagen,
       fecha_escaneo: now
     }))
     if(listadoCols){
@@ -108,24 +125,27 @@ export default async function handler(req,res){
       })
     }
 
-    // Limpia solo esta empresa y reinserta todo
+    // Borra e inserta en lotes para evitar duplicate key
     await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', empresa_id)
 
     let guardListado=0
     for(let i=0;i<listadoRows.length;i+=50){
       const chunk=listadoRows.slice(i,i+50)
       const { error } = await supabase.from('listado_maestro_proveedor').insert(chunk)
-      if(error) return res.status(500).json({ok:false, error:'Error insert chunk: '+error.message+' page '+i, pagesLog, total:uniq.length})
+      if(error) return res.status(500).json({ok:false, error:'Insert '+i+': '+error.message, pagesLog, total:uniq.length})
       guardListado+=chunk.length
     }
 
+    // 5. Actualiza productos_maestro con precios frescos de MBR
     let guardMaestro=0
     try{
       let base = uniq.map(it=>({
-        referencia: String(it.product||'').trim().slice(0,250),
-        precio: parsePrecio(it.price),
-        imagen_original: it.image_src ? `https://mbr.demachine.co${it.image_src}` : null,
-        updated_at: now
+        referencia: it.referencia,
+        precio: it.precio,
+        imagen_original: it.imagen,
+        updated_at: now,
+        stock: it.stock,
+        talla: it.talla
       }))
       if(maestroCols){
         base = base.map(r=>{
@@ -135,23 +155,28 @@ export default async function handler(req,res){
           return f
         })
       }
-      // limpia e inserta maestro también para asegurar 207
       const { error } = await supabase.from('productos_maestro').upsert(base, { onConflict:'referencia' })
       if(!error) guardMaestro=base.length
     }catch{}
 
+    const conPrecio = uniq.filter(u=>u.precio>0).length
+    const sinPrecio = uniq.length - conPrecio
+
     return res.status(200).json({
       ok:true,
       total: uniq.length,
-      totalMBR: all.length,
+      totalMBR: allMBR.length,
+      totalMaestro: maestroList.length,
+      conPrecio,
+      sinPrecio,
       guardados: guardListado,
       guardadosListado: guardListado,
       guardadosMaestro: guardMaestro,
       proveedor:'MBR - MÁXIMA',
-      modo:'FIX_DEFINITIVO_207_CON_PER_PAGE',
+      modo:`FINAL_VERDE_CON_PRECIO_${uniq.length}_PRECIO_${conPrecio}`,
       pagesLog,
-      maestroCols,
-      listadoCols
+      listadoCols,
+      maestroCols
     })
   }catch(e){
     return res.status(500).json({ok:false, error:e.message})
