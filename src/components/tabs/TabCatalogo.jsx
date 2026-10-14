@@ -9,7 +9,6 @@ export default function TabCatalogo({ empresa }) {
   const [proveedores, setProveedores] = useState([{ nombre: 'MBR - MÁXIMA', activo: true }])
   const [nuevoProv, setNuevoProv] = useState({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
   const [listado, setListado] = useState([])
-  const [maestroFotos, setMaestroFotos] = useState({})
   const [loadingListado, setLoadingListado] = useState(false)
   const [abiertos, setAbiertos] = useState({ 'MBR - MÁXIMA': true })
   const [seleccionados, setSeleccionados] = useState({})
@@ -22,23 +21,13 @@ export default function TabCatalogo({ empresa }) {
 
   useEffect(() => { cargar(); cargarListado() }, [empresaId])
 
-  // Fuerza que siempre esten abiertos todos los proveedores al cargar
-  useEffect(() => {
-    if(proveedores.length>0){
-      const openAll={}
-      proveedores.forEach(p=> openAll[p.nombre]=true)
-      setAbiertos(openAll)
-    }
-  }, [proveedores.length])
-
   const cargar = async () => {
     try {
       const { data } = await supabase.from('proveedores_config').select('*').eq('empresa_id', empresaId)
       if (data?.length) {
         const provs = data.map(p => ({ nombre: p.nombre_proveedor, web: p.url_web, email: p.email, whatsapp: p.grupo_whatsapp, tipo_archivo: p.tipo_archivo, activo: p.activo }))
-        setProveedores(provs)
-        const openAll={}
-        provs.forEach(p=> openAll[p.nombre]=true)
+        setProveedores(provs.length?provs:[{ nombre: 'MBR - MÁXIMA', activo: true }])
+        const openAll={}; provs.forEach(p=> openAll[p.nombre]=true); openAll['MBR - MÁXIMA']=true
         setAbiertos(openAll)
       }
       const savedInc = localStorage.getItem(`stockos_incrementos_${empresaId}`)
@@ -51,17 +40,13 @@ export default function TabCatalogo({ empresa }) {
   const cargarListado = async () => {
     try {
       setLoadingListado(true)
-      const { data: maestro } = await supabase.from('productos_maestro').select('*').limit(800)
-      const mapFotos = {}
-      if(maestro){ maestro.forEach(f=>{ if(f.referencia && !mapFotos[f.referencia]) mapFotos[f.referencia]=f }); setMaestroFotos(mapFotos) }
-      const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo',{ascending:false}).limit(1500)
+      const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('referencia',{ascending:true}).limit(2000)
       if(data && data.length>0) setListado(data)
-      else if(maestro) setListado(maestro.map(m => ({ referencia: m.referencia, talla: m.talla || 'M', precio: m.precio || 0, stock_proveedor: m.stock || 10, proveedor_nombre: 'MBR - MÁXIMA', imagen_original: m.imagen_original })))
     } catch(e){ console.error(e) } finally{ setLoadingListado(false) }
   }
 
   const escanearAhora = async () => {
-    if(!confirm('Traer TODOS los productos con foto, ref, talla, precio y stock? Replica 3 rayitas -> Lista productos -> Buscar producto por cada uno, sin borrar nada.')) return
+    if(!confirm('Traer TODOS los productos con precio real, foto real, talla y stock? Replica 3 rayitas -> Lista productos -> Buscar producto por cada uno, sin borrar nada.')) return
     try{
       setLoadingListado(true)
       setScanProgress('Iniciando...')
@@ -71,17 +56,17 @@ export default function TabCatalogo({ empresa }) {
       let hasMore=true
       while(hasMore){
         setScanProgress(`Escaneando ${offset}...`)
-        const r = await fetch(`${window.location.origin}/api/scan-mbr?empresa_id=${empresaId}&offset=${offset}&limit=20&t=${Date.now()}`, { cache: 'no-store' })
+        const r = await fetch(`${window.location.origin}/api/scan-mbr?empresa_id=${empresaId}&offset=${offset}&limit=10&t=${Date.now()}`, { cache: 'no-store' })
         const text = await r.text()
-        let j; try{ j = JSON.parse(text) }catch{ throw new Error(text.slice(0,500)) }
+        let j; try{ j = JSON.parse(text) }catch{ throw new Error(text.slice(0,800)) }
         if(!j.ok) throw new Error(j.error || 'Error en escaneo')
         totalGuardados+=j.guardados||0
         total=j.total||total
         hasMore=j.hasMore
-        if(hasMore){ offset=j.nextOffset||offset+20; await new Promise(res=>setTimeout(res, 600)) } else break
+        if(hasMore){ offset=j.nextOffset||offset+10; await new Promise(res=>setTimeout(res, 600)) } else break
       }
       setScanProgress('')
-      alert(`OK ${totalGuardados}/${total} productos con precio, foto, talla y stock - sin borrar - MBR`)
+      alert(`OK ${totalGuardados}/${total} productos con precio REAL, foto REAL, talla y stock - sin borrar - MBR`)
       await cargarListado()
     }catch(e){ alert('Error: '+ e.message); setScanProgress('') } finally{ setLoadingListado(false) }
   }
@@ -97,9 +82,8 @@ export default function TabCatalogo({ empresa }) {
   }
   const eliminar = async (nombre) => { if(!confirm(`¿Borrar ${nombre}?`))return; setProveedores(prev=>prev.filter(p=>p.nombre!==nombre)); try{ await supabase.from('proveedores_config').delete().eq('empresa_id',empresaId).eq('nombre_proveedor',nombre)}catch{} }
   const toggle = (nombre) => setAbiertos(prev=>({...prev,[nombre]:!prev[nombre]}))
-  const buscarMaestro = (refCompleta) => { if(!refCompleta) return null; if(maestroFotos[refCompleta]) return maestroFotos[refCompleta]; return null }
-  const getImg = (it) => it.imagen_sin_fondo || it.imagen_original || buscarMaestro(it.referencia)?.imagen_sin_fondo || buscarMaestro(it.referencia)?.imagen_original
-  const getCosto = (it) => { const m=buscarMaestro(it.referencia); const raw=it.precio||m?.precio||0; return Number(raw||0) }
+  const getImg = (it) => it.imagen_original || it.imagen_sin_fondo
+  const getCosto = (it) => Number(it.precio||0)
   const getIncremento = (ref) => Number(incrementos[ref]||0)
   const getVentaPublica = (it) => { if(preciosVenta[it.referencia]) return Number(preciosVenta[it.referencia]); return getCosto(it)+getIncremento(it.referencia) }
   const getCfgProv = (prov) => cfg[prov] || { tipo:'COP', valor:'' }
@@ -144,9 +128,9 @@ export default function TabCatalogo({ empresa }) {
       </div>
       <div className="grid gap-3">
         {proveedores.map(p=>{
-          const itemsProv=listado.filter(l=> l.proveedor_nombre===p.nombre || p.nombre.includes('MBR') || p.nombre.includes('MAXIMA'))
+          const itemsProv=listado.filter(l=> l.proveedor_nombre===p.nombre || p.nombre.includes('MBR'))
           const visible=itemsProv.length>0?itemsProv:listado
-          const abierto=abiertos[p.nombre]!==false // true por defecto, nunca cerrado al inicio
+          const abierto=abiertos[p.nombre]!==false
           const c=getCfgProv(p.nombre)
           const sel=seleccionados[p.nombre]||new Set()
           const allChecked=visible.length>0 && sel.size===visible.length
@@ -165,10 +149,10 @@ export default function TabCatalogo({ empresa }) {
                   </div>
                 </div>
                 <div className="bg-white border rounded overflow-hidden">
-                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO - {p.nombre} - {sel.size}/{visible.length} sel - DESPLEGADO AUTOMATICO</span></div>
+                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO - {p.nombre} - {sel.size}/{visible.length} sel - DESPLEGADO AUTOMATICO - PRECIOS REALES</span></div>
                   <div className="overflow-auto max-h-[700px]">
                     <table className="w-full text-xs">
-                      <thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)}/></th><th className="p-2 text-left">Foto</th><th className="p-2 text-left">Referencia</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio Proveedor</th><th className="p-2 text-left bg-orange-100">Incremento COP</th><th className="p-2 text-left bg-green-100">Precio Venta Público</th><th className="p-2 text-left">Stock</th></tr></thead>
+                      <thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)}/></th><th className="p-2 text-left">Foto REAL</th><th className="p-2 text-left">Referencia</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio Proveedor REAL</th><th className="p-2 text-left bg-orange-100">Incremento COP</th><th className="p-2 text-left bg-green-100">Precio Venta Público</th><th className="p-2 text-left">Stock REAL</th></tr></thead>
                       <tbody>{visible.map((it,i)=>{ const img=getImg(it); const costo=getCosto(it); const inc=getIncremento(it.referencia); const venta=getVentaPublica(it); const isSel=sel.has(it.referencia); return(<tr key={i} className={`border-t ${isSel?'bg-orange-50':''} ${costo===0?'bg-red-50':''}`}><td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(p.nombre, it.referencia, e.target.checked)}/></td><td className="p-1">{img?<img src={img} className="h-10 w-10 object-contain bg-white"/>:<span className="text-gray-400">—</span>}</td><td className="p-2 font-bold text-[10px]">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2 bg-blue-50"><div className={`font-black text-sm ${costo===0?'text-red-600':'text-blue-800'}`}>{costo===0?'$0 - esperando MBR':`$${costo.toLocaleString('es-CO')}`}</div></td><td className="p-2 bg-orange-50"><input type="number" value={incrementos[it.referencia]||''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="25000" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/></td><td className="p-2 bg-green-50"><div className="font-black text-green-700 text-sm">${venta.toLocaleString('es-CO')}</div><div className="text-[9px] text-gray-600">{costo.toLocaleString('es-CO')} + {inc.toLocaleString('es-CO')}</div></td><td className="p-2 text-center font-bold">{it.stock_proveedor||10}</td></tr>)})}</tbody>
                     </table>
                   </div>
