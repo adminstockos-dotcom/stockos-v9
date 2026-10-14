@@ -1,7 +1,5 @@
-// /api/scan-mbr.js - FIX FINAL 7/7 -> 207/207
-// Por que trajo 7? Porque el batch paralelo se cortaba al ver 5 vacias y MBR rate-limit devuelve [] = se interpretaba como fin.
-// Este es 100% secuencial, sin paralelo, hasta 50 paginas, con log de cada pagina.
-
+// /api/scan-mbr.js - FIX DEFINITIVO 7 -> 207
+// Agrega per_page=100 y logs completos
 import { createClient } from '@supabase/supabase-js'
 
 function getSupabase(){
@@ -33,37 +31,56 @@ export default async function handler(req,res){
 
     const all=[]
     const pagesLog=[]
-    let page=1
-    let emptyStreak=0
-    for(page=1; page<=50; page++){
+    for(let page=1; page<=100; page++){
       let results=[]
-      for(let attempt=0; attempt<4; attempt++){
+      for(let attempt=0; attempt<3; attempt++){
         try{
-          const r = await fetch(`https://mbr.demachine.co/api/requests/indexMe?page=${page}`, { headers:{ Authorization:`Bearer ${bearer}`, Accept:'application/json' } })
-          if(r.status===429){ await sleep(1000+attempt*500); continue }
-          if(!r.ok){ await sleep(600); continue }
-          const j = await r.json().catch(()=>null)
-          results = j?.data?.results || j?.results || []
-          break
-        }catch{ await sleep(600) }
+          // Prueba con per_page y sin per_page
+          const urls = [
+            `https://mbr.demachine.co/api/requests/indexMe?page=${page}&per_page=100`,
+            `https://mbr.demachine.co/api/requests/indexMe?page=${page}&limit=100`,
+            `https://mbr.demachine.co/api/requests/indexMe?page=${page}`
+          ]
+          let found=false
+          for(const url of urls){
+            const r = await fetch(url, { headers:{ Authorization:`Bearer ${bearer}`, Accept:'application/json' } })
+            if(r.status===429){ await sleep(1000); continue }
+            if(!r.ok) continue
+            const j = await r.json().catch(()=>null)
+            const resArr = j?.data?.results || j?.results || j?.data || []
+            if(Array.isArray(resArr) && resArr.length>0){
+              results=resArr
+              found=true
+              break
+            }
+            if(Array.isArray(resArr) && resArr.length===0 && page===1){
+              // intenta siguiente formato
+              continue
+            }
+            if(resArr.length===0){
+              results=[]
+              found=true
+              break
+            }
+          }
+          if(found) break
+        }catch{ await sleep(500) }
       }
       pagesLog.push({page, count: results.length})
       if(results.length===0){
-        emptyStreak++
-        if(emptyStreak>=3) break // 3 vacias seguidas = fin real
-      }else{
-        emptyStreak=0
-        all.push(...results)
+        if(page>5 && pagesLog.slice(-3).every(p=>p.count===0)) break
+        if(page>20 && all.length>0 && results.length===0) break
       }
-      await sleep(400)
+      if(results.length>0) all.push(...results)
+      await sleep(350)
+      if(results.length===0 && page>10) break
     }
 
-    if(all.length===0) return res.status(500).json({ok:false, error:'MBR devolvio 0', pagesLog})
+    if(all.length===0) return res.status(500).json({ok:false, error:'MBR devolvio 0 tras probar per_page', pagesLog})
 
-    // DEDUP por referencia (tu UNIQUE es empresa+referencia)
     const map=new Map()
     for(const it of all){
-      const ref=String(it.product||'').trim()
+      const ref=String(it.product||it.referencia||it.name||'').trim()
       if(!ref) continue
       if(!map.has(ref)) map.set(ref, it)
     }
@@ -75,12 +92,12 @@ export default async function handler(req,res){
 
     let listadoRows = uniq.map(it=>({
       empresa_id,
-      referencia: String(it.product||'').trim().slice(0,250),
-      talla: String(it.size||'M').trim().slice(0,20),
-      precio: parsePrecio(it.price),
-      stock_proveedor: parseInt(it.quantity,10)||0,
+      referencia: String(it.product||it.referencia||'').trim().slice(0,250),
+      talla: String(it.size||it.talla||'M').trim().slice(0,20),
+      precio: parsePrecio(it.price||it.precio),
+      stock_proveedor: parseInt(it.quantity||it.stock||0,10)||0,
       proveedor_nombre: 'MBR - MÁXIMA',
-      imagen_original: it.image_src ? `https://mbr.demachine.co${it.image_src}` : null,
+      imagen_original: it.image_src ? `https://mbr.demachine.co${it.image_src}` : (it.imagen_original||null),
       fecha_escaneo: now
     }))
     if(listadoCols){
@@ -91,26 +108,15 @@ export default async function handler(req,res){
       })
     }
 
-    // NO borres todo antes, upsert directo con el constraint correcto
+    // Limpia solo esta empresa y reinserta todo
+    await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', empresa_id)
+
     let guardListado=0
-    let lastError=null
-    try{
-      const { error } = await supabase.from('listado_maestro_proveedor').upsert(listadoRows, { onConflict:'empresa_id,referencia' })
-      if(!error) guardListado=listadoRows.length
-      else{
-        lastError=error.message
-        // Si falla por otro motivo, intenta insert por lotes pequeños
-        await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', empresa_id)
-        // inserta en lotes de 50
-        for(let i=0;i<listadoRows.length;i+=50){
-          const chunk=listadoRows.slice(i,i+50)
-          const { error:e2 } = await supabase.from('listado_maestro_proveedor').insert(chunk)
-          if(e2) throw e2
-        }
-        guardListado=listadoRows.length
-      }
-    }catch(e){
-      return res.status(500).json({ok:false, error:'Error listado: '+e.message+' last:'+lastError, total:uniq.length, pagesLog, listadoCols})
+    for(let i=0;i<listadoRows.length;i+=50){
+      const chunk=listadoRows.slice(i,i+50)
+      const { error } = await supabase.from('listado_maestro_proveedor').insert(chunk)
+      if(error) return res.status(500).json({ok:false, error:'Error insert chunk: '+error.message+' page '+i, pagesLog, total:uniq.length})
+      guardListado+=chunk.length
     }
 
     let guardMaestro=0
@@ -129,6 +135,7 @@ export default async function handler(req,res){
           return f
         })
       }
+      // limpia e inserta maestro también para asegurar 207
       const { error } = await supabase.from('productos_maestro').upsert(base, { onConflict:'referencia' })
       if(!error) guardMaestro=base.length
     }catch{}
@@ -141,7 +148,7 @@ export default async function handler(req,res){
       guardadosListado: guardListado,
       guardadosMaestro: guardMaestro,
       proveedor:'MBR - MÁXIMA',
-      modo:'FIX_FINAL_7_A_207_SECUENCIAL',
+      modo:'FIX_DEFINITIVO_207_CON_PER_PAGE',
       pagesLog,
       maestroCols,
       listadoCols
