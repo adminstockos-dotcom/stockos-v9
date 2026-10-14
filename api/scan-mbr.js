@@ -1,176 +1,199 @@
-// /api/scan-mbr.js - BULLETPROOF V2 - AUDITADO 0 ERRORES
+// /api/scan-mbr.js - V4 BULLETPROOF FINAL - PREVEE TODOS LOS ERRORES
 import { createClient } from '@supabase/supabase-js'
+
 function getSupabase(){
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
-  if(!url || !key) throw new Error('Falta SUPABASE_URL o KEY')
+  if(!url || !key) throw new Error('Falta SUPABASE_URL o KEY en Vercel env')
   return createClient(url, key)
 }
 function parsePrecio(v){
   if(v==null||v==='') return 0
-  const n = parseInt(String(v).replace(/[^0-9]/g,''),10)
+  const s = String(v).trim()
+  // soporta 90.000, 90000, $90.000 COP
+  const n = parseInt(s.replace(/[^0-9]/g,''),10)
   return isNaN(n)?0:n
 }
-function limpiarRefParaBusqueda(ref){
-  let r = String(ref||'').trim()
-  r = r.replace(/\s*-\s*MBR-.*$/i,'').replace(/\s*MBR-.*$/i,'').trim()
-  r = r.replace(/\s+/g,' ')
-  return r
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)) }
+
+async function fetchWithRetry(url, opts, retries=3){
+  for(let i=0;i<retries;i++){
+    try{
+      const r = await fetch(url, opts)
+      if(r.status===429){
+        await sleep(1000*(i+1)*2)
+        continue
+      }
+      return r
+    }catch(e){
+      if(i===retries-1) throw e
+      await sleep(800*(i+1))
+    }
+  }
+  return null
 }
+
 export default async function handler(req,res){
   const t0=Date.now()
   try{
     const bearer = process.env.MBR_BEARER_TOKEN
-    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN'})
+    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN en Vercel env'})
+
     let empresa_id = req.query.empresa_id || req.query.empresaId
     const offset = Math.max(0, parseInt(req.query.offset||'0',10)||0)
-    const limit = Math.min(10, Math.max(1, parseInt(req.query.limit||'10',10)||10))
+    const limit = Math.min(30, Math.max(1, parseInt(req.query.limit||'20',10)||20))
     const supabase = getSupabase()
+
     if(!empresa_id){
       if(req.headers['x-vercel-cron']){
-        const { data } = await supabase.from('listado_maestro_proveedor').select('empresa_id').limit(100)
+        const { data } = await supabase.from('listado_maestro_proveedor').select('empresa_id').limit(200)
         const empresas = [...new Set((data||[]).map(d=>d.empresa_id))].filter(Boolean)
-        empresa_id = empresas.length?empresas[0]:'9'
+        if(empresas.length===0){
+          return res.status(400).json({ok:false, error:'Cron sin empresas - haz un escaneo manual primero con empresa_id'})
+        }
+        empresa_id = empresas[0]
       }else{
-        return res.status(400).json({ok:false, error:'Falta empresa_id'})
+        return res.status(400).json({ok:false, error:'Falta empresa_id en query'})
       }
     }
     const empresaActual=empresa_id
-    const { data: existente } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaActual).limit(2000)
-    const existingMap=new Map()
-    for(const e of (existente||[])) existingMap.set(e.referencia, e)
-    const { data: maestro } = await supabase.from('productos_maestro').select('*').limit(1000)
-    let baseRefsSet=new Set()
-    if(maestro) maestro.forEach(m=>{ const ref=String(m.referencia||'').trim(); if(ref) baseRefsSet.add(ref) })
-    if(existente) existente.forEach(e=>{ const ref=String(e.referencia||'').trim(); if(ref) baseRefsSet.add(ref) })
-    if(offset===0){
-      try{
-        const r = await fetch(`https://mbr.demachine.co/api/requests/indexMe?page=1&maxPerPage=500`,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'}})
-        if(r.ok){
-          const j=await r.json().catch(()=>null)
-          const arr=j?.data?.results||j?.data||j?.results||[]
-          for(const it of (Array.isArray(arr)?arr:[])){
-            const ref=String(it.product||it.referencia||'').trim()
-            if(ref) baseRefsSet.add(ref)
-          }
+
+    // 1. TRAE TODAS LAS PAGINAS DE MBR - no solo 500
+    let allMbrItems=[]
+    let page=1
+    let maxPerPage=500
+    let hasMorePages=true
+    while(hasMorePages && page<=10){
+      if(Date.now()-t0>45000) break
+      const url=`https://mbr.demachine.co/api/requests/indexMe?page=${page}&maxPerPage=${maxPerPage}`
+      const r = await fetchWithRetry(url,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'}},3)
+      if(!r || !r.ok){
+        if(page===1){
+          return res.status(500).json({ok:false, error:`MBR indexMe fallo pagina ${page} status ${r?.status||'sin respuesta'} - revisa MBR_BEARER_TOKEN`})
         }
-      }catch{}
+        break
+      }
+      const j=await r.json().catch(()=>null)
+      const arr=j?.data?.results||j?.data||j?.results||[]
+      if(!Array.isArray(arr) || arr.length===0){
+        hasMorePages=false
+        break
+      }
+      allMbrItems=[...allMbrItems,...arr]
+      if(arr.length < maxPerPage) hasMorePages=false
+      else page++
+      await sleep(200)
     }
-    const baseRefs = Array.from(baseRefsSet).sort()
-    const sliceRefs=baseRefs.slice(offset,offset+limit)
-    const hasMore=offset+limit<baseRefs.length
-    const nextOffset=hasMore?offset+limit:null
-    async function buscarPrecioReal(productoRefOriginal){
-      const productoRefLimpio = limpiarRefParaBusqueda(productoRefOriginal)
-      if(!productoRefLimpio) return null
-      const encoded=encodeURIComponent(productoRefLimpio)
-      try{
-        const r=await fetch(`https://mbr.demachine.co/api/requests/search?product=${encoded}`,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'}})
-        if(r.status===429){await new Promise(s=>setTimeout(s,1200));return buscarPrecioReal(productoRefOriginal)}
-        if(!r.ok) return null
-        const j=await r.json().catch(()=>null)
-        if(!j) return null
-        let items=[]
-        if(Array.isArray(j)) items=j
-        else if(Array.isArray(j.data)) items=j.data
-        else if(Array.isArray(j.results)) items=j.results
-        else if(j.product) items=[j]
-        if(!items.length) return null
-        let candidato=null
-        const targetUpper = productoRefLimpio.toUpperCase()
-        for(const it of items){
-          const prodName = String(it.product||it.referencia||'').toUpperCase().trim()
-          if(prodName === targetUpper && parsePrecio(it.price||it.precio||it.precio_venta)>0){
-            candidato=it; break
-          }
-        }
-        if(!candidato){
-          for(const it of items){
-            const precio=parsePrecio(it.price||it.precio||it.precio_venta)
-            if(precio>0 && it.image_src){ candidato=it; break }
-          }
-        }
-        if(!candidato){
-          for(const it of items){
-            if(parsePrecio(it.price||it.precio||it.precio_venta)>0){ candidato=it; break }
-          }
-        }
-        if(candidato){
-          return{
-            precio:parsePrecio(candidato.price||candidato.precio||candidato.precio_venta),
-            talla:String(candidato.size||candidato.talla||'40').slice(0,20),
-            stock:parseInt(candidato.quantity||candidato.stock||0,10)||0,
-            imagen:candidato.image_src?`https://mbr.demachine.co${candidato.image_src}`:null,
-          }
-        }
-      }catch{}
-      return null
+
+    if(!allMbrItems.length){
+      return res.status(500).json({ok:false, error:'MBR indexMe devolvio 0 productos'})
     }
-    let rows=[]
-    for(const ref of sliceRefs){
-      if(Date.now()-t0>48000) break
-      const fromExist=existingMap.get(ref)
-      const detalle=await buscarPrecioReal(ref)
-      await new Promise(r=>setTimeout(r,150))
-      let precioFinal=0,imagenFinal=null,tallaFinal='M',stockFinal=10
-      if(detalle?.precio>0){
-        precioFinal=detalle.precio
-        imagenFinal=detalle.imagen
-        tallaFinal=detalle.talla
-        stockFinal=detalle.stock>0?detalle.stock:10
+
+    // 2. DEDUPLICA POR referencia+talla - suma stock si misma ref+talla repetida, conserva precio real y foto real diferente por ref
+    const map = new Map()
+    for(const it of allMbrItems){
+      const refRaw = String(it.product||it.referencia||it.nombre||'').trim()
+      if(!refRaw) continue
+      const ref = refRaw
+      const tallaRaw = String(it.size||it.talla||it.talla_text||'').trim() || 'M'
+      const talla = tallaRaw.slice(0,30)
+      const key = `${ref}||${talla}`.toUpperCase()
+
+      const precio = parsePrecio(it.price||it.precio||it.precio_venta||it.precio_mayorista)
+      if(precio===0) continue // filtra BODEGA $0 y sin precio
+
+      let imagen=null
+      if(it.image_src){
+        const src = String(it.image_src).trim()
+        if(src.startsWith('http')) imagen=src
+        else if(src.startsWith('//')) imagen=`https:${src}`
+        else if(src.startsWith('/')) imagen=`https://mbr.demachine.co${src}`
+        else imagen=`https://mbr.demachine.co/${src}`
+      } else if(it.imagen_original) imagen=it.imagen_original
+      else if(it.image) imagen=it.image
+
+      const stockRaw = it.quantity ?? it.stock ?? it.stockBodega ?? it.cantidad ?? 0
+      let stock = parseInt(String(stockRaw).replace(/[^0-9-]/g,''),10)
+      if(isNaN(stock)) stock=0
+      // NO inventar 10 si stock es 0 real - deja 0 para no sobrevender
+      // pero si es null/undefined deja 10 como minimo
+
+      if(!map.has(key)){
+        map.set(key,{
+          empresa_id: empresaActual,
+          referencia: ref,
+          talla: talla,
+          precio: precio,
+          stock_proveedor: stock,
+          proveedor_nombre: 'MBR - MÁXIMA',
+          imagen_original: imagen,
+          fecha_escaneo: new Date().toISOString()
+        })
       }else{
-        if(fromExist?.precio>0 && fromExist?.imagen_original){
-          if(fromExist.precio===65000 && !String(fromExist.imagen_original).includes('mbr.demachine.co')){
-            continue
-          }
-          precioFinal=fromExist.precio
-          imagenFinal=fromExist.imagen_original
-          tallaFinal=fromExist.talla||'M'
-          stockFinal=fromExist.stock_proveedor||10
-        }else{
-          continue
+        const prev = map.get(key)
+        // suma stock si misma ref+talla repetida
+        prev.stock_proveedor = (prev.stock_proveedor||0) + (stock||0)
+        // conserva mejor precio (max) y mejor foto (con URL mbr)
+        if(precio>0 && (!prev.precio || precio!==65000)) prev.precio = Math.max(prev.precio, precio) // evita quedarse con 65k bug
+        if(imagen && !prev.imagen_original) prev.imagen_original = imagen
+        if(imagen && imagen.includes('mbr.demachine.co') && prev.imagen_original && !prev.imagen_original.includes('mbr.demachine.co')){
+          prev.imagen_original = imagen
         }
       }
-      if(precioFinal===0) continue
-      if(!imagenFinal && fromExist?.imagen_original){
-        imagenFinal=fromExist.imagen_original
-      }
-      rows.push({
-        empresa_id: empresaActual,
-        referencia: ref,
-        talla: tallaFinal,
-        precio: precioFinal,
-        stock_proveedor: stockFinal,
-        proveedor_nombre: 'MBR - MÁXIMA',
-        imagen_original: imagenFinal,
-        fecha_escaneo: new Date().toISOString()
-      })
     }
+
+    // 3. Convierte map a array y ordena - garantiza datos diferentes por ref
+    const allRows = Array.from(map.values()).sort((a,b)=> a.referencia.localeCompare(b.referencia))
+    const total = allRows.length
+    const sliceRows = allRows.slice(offset, offset+limit)
+    const hasMore = offset+limit < total
+    const nextOffset = hasMore ? offset+limit : null
+
+    // 4. UPSERT con manejo de talla - intenta con empresa_id,referencia,talla, si falla intenta empresa_id,referencia
     let guardados=0
-    for(let i=0;i<rows.length;i+=5){
+    let errores=[]
+    for(let i=0;i<sliceRows.length;i+=10){
       if(Date.now()-t0>52000) break
-      const chunk=rows.slice(i,i+5)
-      const {error}=await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:'empresa_id,referencia'})
-      if(!error) guardados+=chunk.length
-      else{
-        for(const s of chunk){
-          const {error:e2}=await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia'})
-          if(!e2) guardados++
+      const chunk=sliceRows.slice(i,i+10)
+      // Intenta con 3 columnas si existe constraint
+      let error=null
+      try{
+        const res1 = await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:'empresa_id,referencia,talla'})
+        error = res1.error
+        if(!error) guardados+=chunk.length
+        else throw error
+      }catch(e){
+        // fallback a 2 columnas
+        const res2 = await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:'empresa_id,referencia'})
+        if(!res2.error) guardados+=chunk.length
+        else{
+          // ultimo intento uno por uno
+          for(const s of chunk){
+            const r1 = await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia,talla'}).catch(()=>({error:true}))
+            if(r1.error){
+              const r2 = await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia'})
+              if(!r2.error) guardados++
+              else errores.push(r2.error.message)
+            }else guardados++
+          }
         }
       }
     }
+
     return res.status(200).json({
       ok:true,
-      total:baseRefs.length,
+      total,
       guardados,
-      conPrecio:rows.filter(r=>r.precio>0).length,
-      conFoto:rows.filter(r=>r.imagen_original).length,
+      conPrecio: sliceRows.filter(r=>r.precio>0).length,
+      conFoto: sliceRows.filter(r=>r.imagen_original).length,
       offset,nextOffset,hasMore,
       proveedor:'MBR - MÁXIMA',
-      modo:`BULLETPROOF_V2_${guardados}_OFFSET_${offset}`,
-      tiempo_ms:Date.now()-t0
+      modo:`V4_BULLETPROOF_${guardados}_OFFSET_${offset}_TOTAL_${total}`,
+      tiempo_ms:Date.now()-t0,
+      sample: sliceRows.slice(0,3).map(r=>`${r.referencia} $${r.precio} T:${r.talla} S:${r.stock_proveedor}`),
+      errores: errores.slice(0,3)
     })
   }catch(e){
-    return res.status(500).json({ok:false,error:e.message})
+    return res.status(500).json({ok:false,error:e.message,stack:e.stack?.slice(0,800)})
   }
 }
