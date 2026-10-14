@@ -1,4 +1,6 @@
-// /api/scan-mbr.js - FIX STOCK column - solo columnas existentes
+// /api/scan-mbr.js - FIX UNIQ_EMPRESA_REFERENCIA
+// Tu tabla listado_maestro_proveedor tiene UNIQUE(empresa_id, referencia) sin talla
+// Este fix usa onConflict empresa_id,referencia y dedup por referencia
 import { createClient } from '@supabase/supabase-js'
 
 function getSupabase(){
@@ -11,11 +13,17 @@ function parsePrecio(v){
   const n = parseInt(s,10)
   return isNaN(n)?0:n
 }
+async function getCols(supabase, table){
+  try{
+    const { data } = await supabase.from(table).select('*').limit(1)
+    if(!data || data.length===0) return null
+    return Object.keys(data[0])
+  }catch{ return null }
+}
 
 export default async function handler(req,res){
   try{
     const bearer = process.env.MBR_BEARER_TOKEN
-    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN'})
     const empresa_id = req.query.empresa_id || req.query.empresaId
     if(!empresa_id) return res.status(400).json({ok:false, error:'Falta empresa_id'})
     const supabase = getSupabase()
@@ -32,7 +40,6 @@ export default async function handler(req,res){
       }
       return []
     }
-
     const all=[]
     for(let b=1;b<=30;b+=5){
       const batch=[]
@@ -45,18 +52,20 @@ export default async function handler(req,res){
     }
     if(all.length===0) return res.status(500).json({ok:false, error:'MBR 0'})
 
+    // DEDUP POR REFERENCIA SOLA porque tu constraint es uniq_empresa_referencia
     const map=new Map()
     for(const it of all){
       const ref=String(it.product||'').trim()
       if(!ref) continue
-      const talla=String(it.size||'M').trim().slice(0,20)
-      map.set(ref+'|'+talla,it)
+      map.set(ref, it) // ultimo gana
     }
     const uniq=Array.from(map.values())
     const now=new Date().toISOString()
 
-    // LISTADO MAESTRO - tabla que SI usas en el panel
-    const listadoRows=uniq.map(it=>({
+    const maestroCols = await getCols(supabase, 'productos_maestro')
+    const listadoCols = await getCols(supabase, 'listado_maestro_proveedor')
+
+    let listadoRows = uniq.map(it=>({
       empresa_id: empresa_id,
       referencia: String(it.product||'').trim().slice(0,250),
       talla: String(it.size||'M').trim().slice(0,20),
@@ -66,33 +75,48 @@ export default async function handler(req,res){
       imagen_original: it.image_src ? `https://mbr.demachine.co${it.image_src}` : null,
       fecha_escaneo: now
     }))
+    if(listadoCols){
+      listadoRows = listadoRows.map(row=>{
+        const f={}
+        for(const k of Object.keys(row)) if(listadoCols.includes(k)) f[k]=row[k]
+        return f
+      })
+    }
 
     let guardListado=0
     try{
-      const { error } = await supabase.from('listado_maestro_proveedor').upsert(listadoRows, { onConflict:'empresa_id,referencia,talla' })
+      // FIX: onConflict empresa_id,referencia (tu constraint real)
+      const { error } = await supabase.from('listado_maestro_proveedor').upsert(listadoRows, { onConflict:'empresa_id,referencia' })
       if(!error) guardListado=listadoRows.length
       else{
+        // fallback por si el constraint tiene otro nombre, borra e inserta
         await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', empresa_id).eq('proveedor_nombre','MBR - MÁXIMA')
         const { error:e2 } = await supabase.from('listado_maestro_proveedor').insert(listadoRows)
         if(e2) throw e2
         guardListado=listadoRows.length
       }
     }catch(e){
-      return res.status(500).json({ok:false, error:'Error listado: '+e.message, total: uniq.length})
+      return res.status(500).json({ok:false, error:'Error listado: '+e.message, total: uniq.length, cols:listadoCols})
     }
 
-    // productos_maestro - opcional, si falla no rompe el 207
     let guardMaestro=0
     try{
-      // solo columnas seguras: referencia, precio, imagen_original, updated_at
-      const maestroSafe=uniq.map(it=>({
+      let base = uniq.map(it=>({
         referencia: String(it.product||'').trim().slice(0,250),
         precio: parsePrecio(it.price),
         imagen_original: it.image_src ? `https://mbr.demachine.co${it.image_src}` : null,
         updated_at: now
       }))
-      const { error } = await supabase.from('productos_maestro').upsert(maestroSafe, { onConflict:'referencia' })
-      if(!error) guardMaestro=maestroSafe.length
+      if(maestroCols){
+        base = base.map(r=>{
+          const f={}
+          for(const k of Object.keys(r)) if(maestroCols.includes(k)) f[k]=r[k]
+          if(!f.referencia) f.referencia=r.referencia
+          return f
+        })
+      }
+      const { error } = await supabase.from('productos_maestro').upsert(base, { onConflict:'referencia' })
+      if(!error) guardMaestro=base.length
     }catch{}
 
     return res.status(200).json({
@@ -102,7 +126,9 @@ export default async function handler(req,res){
       guardadosListado: guardListado,
       guardadosMaestro: guardMaestro,
       proveedor:'MBR - MÁXIMA',
-      modo:'FIX_SIN_STOCK_NOMBRE_207'
+      modo:'FIX_UNIQ_EMPRESA_REFERENCIA_207',
+      maestroCols,
+      listadoCols
     })
   }catch(e){
     return res.status(500).json({ok:false, error:e.message})
