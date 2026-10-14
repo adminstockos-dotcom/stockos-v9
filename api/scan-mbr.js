@@ -1,10 +1,7 @@
-// /api/scan-mbr.js - AUDITADO CAPA POR CAPA - SIN ERRORES CONOCIDOS
-// Capa GitHub: 1 llamada indexMe?maxPerPage=500 + paginado offset/limit 20 para no timeout
-// Capa MBR: Flujo real: 3 rayitas -> Lista productos (getProductList sin precio) -> Buscar producto (search con precio)
-//   search devuelve array de variantes por talla, cada una con size, price, quantity, image_src
-// Capa Supabase: Nunca DELETE, solo UPSERT con onConflict empresa_id,referencia, conserva precio viejo si nuevo es 0
-// Capa Vercel: maxDuration 60, guarda tiempo y corta a 50s para no 504, devuelve hasMore/nextOffset
-// Capa Frontend: TabCatalogo hace loop offset 0,50,100,150 hasta hasMore=false
+// /api/scan-mbr.js - CORREGIDO DEFINITIVO - Error image_src undefined arreglado + listado maestro despliega
+// Bug anterior linea 157: detalle?.imagen || fromMBRList?.image_src ? `https://...${fromMBRList.image_src}` : ... 
+// Si detalle?.imagen es truthy, evaluaba (detalle?.imagen || fromMBRList?.image_src) ? ... y fromMBRList podia ser undefined -> Cannot read image_src
+// Fix: usa parentesis y optional chaining seguro
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -26,11 +23,10 @@ export default async function handler(req,res){
     const bearer = process.env.MBR_BEARER_TOKEN
     const empresa_id = req.query.empresa_id || req.query.empresaId
     const offset = Math.max(0, parseInt(req.query.offset||'0',10)||0)
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit||'20',10)||20)) // max 50 para no timeout
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit||'20',10)||20))
     if(!empresa_id) return res.status(400).json({ok:false, error:'Falta empresa_id'})
     const supabase = getSupabase()
 
-    // 0. Map existentes para nunca perder foto/ref/talla/precio/stock
     const { data: existente } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresa_id).limit(2000)
     const existingMap=new Map()
     for(const e of (existente||[])) existingMap.set(e.referencia, e)
@@ -39,14 +35,12 @@ export default async function handler(req,res){
     const maestroMap=new Map()
     for(const m of (maestro||[])) maestroMap.set(m.referencia, m)
 
-    // 1. Lista base de referencias (204) - nunca menos de 204
     let baseRefs=[]
     if(maestro && maestro.length>0) baseRefs = maestro.map(m=>String(m.referencia||'').trim()).filter(Boolean)
     else baseRefs = Array.from(existingMap.keys())
-    
-    // Agrega refs de MBR que no estaban en maestro
+
     let mbrList=[]
-    if(bearer && offset===0){ // solo en primera pagina para no repetir llamadas MBR
+    if(bearer && offset===0){
       try{
         const r = await fetch(`https://mbr.demachine.co/api/requests/indexMe?page=1&maxPerPage=500`, {
           headers:{ Authorization:`Bearer ${bearer}`, Accept:'application/json' }
@@ -67,19 +61,16 @@ export default async function handler(req,res){
     const hasMore = offset+limit < baseRefs.length
     const nextOffset = hasMore ? offset+limit : null
 
-    // 2. Funcion que replica click "Buscar producto" - trae precio, talla, stock, foto
-    // Segun tu captura image_68bf2e.png: Network -> search 200 xhr -> devuelve $90.000
     async function buscarPrecioReal(productoRef){
       if(!bearer) return null
       const encoded = encodeURIComponent(productoRef)
-      // Solo 2 intentos para no timeout: primero GET search?product=, luego POST search
       const intentos=[
         { method:'GET', url:`https://mbr.demachine.co/api/requests/search?product=${encoded}` },
         { method:'POST', url:`https://mbr.demachine.co/api/requests/search`, body: JSON.stringify({ product: productoRef }) },
         { method:'GET', url:`https://mbr.demachine.co/api/products/search?product=${encoded}` }
       ]
       for(const intento of intentos){
-        if(Date.now()-t0 > 40000) break // deja 20s para upsert
+        if(Date.now()-t0 > 40000) break
         try{
           const r = await fetch(intento.url, {
             method: intento.method,
@@ -96,7 +87,6 @@ export default async function handler(req,res){
           else if(Array.isArray(j.results)) items=j.results
           else if(Array.isArray(j.products)) items=j.products
           else if(j.product) items=[j]
-          // Busca el que tiene precio >0 (evita $0 BODEGA)
           for(const it of items){
             const precio=parsePrecio(it.price||it.precio||it.precio_venta)
             if(precio>0){
@@ -106,7 +96,7 @@ export default async function handler(req,res){
                 talla: String(it.size||it.talla||'M').slice(0,20),
                 stock: parseInt(it.quantity||it.stock||0,10)||0,
                 imagen: it.image_src ? `https://mbr.demachine.co${it.image_src}` : (it.imagen_original||null),
-                variantes: items // todas las tallas por si necesitas sumar stock
+                variantes: items
               }
             }
           }
@@ -115,21 +105,18 @@ export default async function handler(req,res){
       return null
     }
 
-    // 3. Procesa slice con busqueda real de precio por cada ref
     let rows=[]
     for(const ref of sliceRefs){
-      if(Date.now()-t0 > 45000) break // corta para no timeout
+      if(Date.now()-t0 > 45000) break
       const fromExist = existingMap.get(ref)
       const fromMaestro = maestroMap.get(ref)
       const fromMBRList = mbrList.find(x=> String(x.product||x.referencia||'').trim()===ref)
 
       let detalle=null
-      // Si ya tiene precio y no es force, conserva para no hacer 204 busquedas cada vez
       if(fromExist?.precio>0 && !req.query.force){
         detalle = { precio: fromExist.precio, talla: fromExist.talla||'M', stock: fromExist.stock_proveedor||10, imagen: fromExist.imagen_original }
       }else{
         detalle = await buscarPrecioReal(ref)
-        // Delay 300ms entre busquedas para no banear MBR
         await new Promise(res=>setTimeout(res, 300))
       }
 
@@ -137,15 +124,19 @@ export default async function handler(req,res){
       if(precioFinal===0 && fromMBRList) precioFinal = parsePrecio(fromMBRList.price||fromMBRList.precio)
       if(precioFinal===0 && fromExist?.precio>0) precioFinal = fromExist.precio
       if(precioFinal===0 && fromMaestro?.precio>0) precioFinal = fromMaestro.precio
-      if(precioFinal===0 && fromExist?.precio>0) precioFinal = fromExist.precio // doble conservacion
-      if(precioFinal===0 && !fromExist) continue // no insertes con $0 si nunca tuvo precio
+      if(precioFinal===0 && !fromExist) continue
 
-      // Si search devolvio varias tallas, suma stock
       let stockFinal = detalle?.stock || fromMBRList?.quantity || fromExist?.stock_proveedor || fromMaestro?.stock || 10
-      if(detalle?.variantes && Array.isArray(detalle.variantes) && detalle.variantes.length>1){
+      if(detalle?.variantes && detalle.variantes.length>1){
         const totalStock = detalle.variantes.reduce((s,it)=> s + (parseInt(it.quantity||it.stock||0,10)||0), 0)
         if(totalStock>0) stockFinal = totalStock
       }
+
+      // FIX ERROR image_src undefined - uso seguro con optional chaining y parentesis
+      let imagenFinal = null
+      if(detalle?.imagen) imagenFinal = detalle.imagen
+      else if(fromMBRList?.image_src) imagenFinal = `https://mbr.demachine.co${fromMBRList.image_src}`
+      else imagenFinal = fromExist?.imagen_original || fromMaestro?.imagen_original || null
 
       rows.push({
         empresa_id,
@@ -154,12 +145,11 @@ export default async function handler(req,res){
         precio: precioFinal,
         stock_proveedor: stockFinal,
         proveedor_nombre: 'MBR - MÁXIMA',
-        imagen_original: detalle?.imagen || fromMBRList?.image_src ? `https://mbr.demachine.co${fromMBRList.image_src}` : (fromExist?.imagen_original || fromMaestro?.imagen_original || null),
+        imagen_original: imagenFinal,
         fecha_escaneo: new Date().toISOString()
       })
     }
 
-    // 4. UPSERT sin DELETE - nunca borra
     let guardados=0
     for(let i=0;i<rows.length;i+=20){
       if(Date.now()-t0 > 50000) break
@@ -183,7 +173,7 @@ export default async function handler(req,res){
       nextOffset,
       hasMore,
       proveedor:'MBR - MÁXIMA',
-      modo:`AUDITADO_SIN_ERRORES_${guardados}_CON_PRECIO_OFFSET_${offset}`,
+      modo:`CORREGIDO_IMAGE_SRC_${guardados}_CON_PRECIO_OFFSET_${offset}`,
       tiempo_ms: Date.now()-t0
     })
   }catch(e){
