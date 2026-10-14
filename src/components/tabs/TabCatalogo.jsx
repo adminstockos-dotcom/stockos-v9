@@ -2,7 +2,21 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase.js'
 
 export default function TabCatalogo({ empresa }) {
-  const empresaId = String(empresa?.id || window.location.pathname.split('/')[2] || '9')
+  const getEmpresaId = () => {
+    if(empresa?.id) return String(empresa.id)
+    try{
+      const parts = window.location.pathname.split('/').filter(Boolean)
+      // /empresa/UUID/panel -> UUID en indice 1
+      const idx = parts.indexOf('empresa')
+      if(idx>=0 && parts[idx+1]) return parts[idx+1]
+      // fallback: busca UUID en path
+      for(const p of parts){
+        if(p.length>30 && p.includes('-')) return p
+      }
+    }catch{}
+    return '9'
+  }
+  const empresaId = getEmpresaId()
   const empresaNombre = empresa?.nombre || 'MAXIMA IMPORTADORES'
   const slug = empresaNombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(' ')[0] || 'maxima'
 
@@ -41,13 +55,14 @@ export default function TabCatalogo({ empresa }) {
   const cargarListado = async () => {
     try {
       setLoadingListado(true)
-      const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('referencia',{ascending:true}).limit(2000)
+      const { data, error } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('referencia',{ascending:true}).order('talla',{ascending:true}).limit(2000)
+      if(error) throw error
       if(data) setListado(data)
-    } catch(e){ console.error(e) } finally{ setLoadingListado(false) }
+    } catch(e){ console.error('cargarListado',e) } finally{ setLoadingListado(false) }
   }
 
   const escanearAhora = async () => {
-    if(!confirm('Traer TODOS los productos con precio real, foto real, talla y stock? Replica 3 rayitas -> Lista productos -> Buscar producto por cada uno, sin borrar nada.')) return
+    if(!confirm('Traer TODOS los productos con precio real, foto real, talla y stock? Usa indexMe directo (no search), sin borrar nada.')) return
     try{
       setLoadingListado(true)
       setScanProgress('Iniciando...')
@@ -55,19 +70,22 @@ export default function TabCatalogo({ empresa }) {
       let totalGuardados=0
       let total=0
       let hasMore=true
-      while(hasMore){
-        setScanProgress(`Escaneando ${offset}...`)
-        const r = await fetch(`${window.location.origin}/api/scan-mbr?empresa_id=${empresaId}&offset=${offset}&limit=10&t=${Date.now()}`, { cache: 'no-store' })
+      let intentos=0
+      while(hasMore && intentos<30){
+        intentos++
+        setScanProgress(`Escaneando ${offset}... (${totalGuardados}/${total||'?'})`)
+        const r = await fetch(`${window.location.origin}/api/scan-mbr?empresa_id=${empresaId}&offset=${offset}&limit=30&t=${Date.now()}`, { cache: 'no-store' })
         const text = await r.text()
         let j; try{ j = JSON.parse(text) }catch{ throw new Error(text.slice(0,800)) }
         if(!j.ok) throw new Error(j.error || 'Error en escaneo')
         totalGuardados+=j.guardados||0
         total=j.total||total
         hasMore=j.hasMore
-        if(hasMore){ offset=j.nextOffset||offset+10; await new Promise(res=>setTimeout(res, 700)) } else break
+        if(j.sample) console.log('sample',j.sample)
+        if(hasMore){ offset=j.nextOffset||offset+30; await new Promise(res=>setTimeout(res, 500)) } else break
       }
       setScanProgress('')
-      alert(`OK ${totalGuardados}/${total} productos con precio REAL, foto REAL, talla y stock - sin borrar - MBR`)
+      alert(`OK ${totalGuardados}/${total} productos con precio REAL diferente, foto REAL diferente, talla y stock REAL - V4`)
       await cargarListado()
     }catch(e){ alert('Error: '+ e.message); setScanProgress('') } finally{ setLoadingListado(false) }
   }
@@ -89,15 +107,29 @@ export default function TabCatalogo({ empresa }) {
   const getVentaPublica = (it) => { if(preciosVenta[it.referencia]) return Number(preciosVenta[it.referencia]); return getCosto(it)+getIncremento(it.referencia) }
   const getCfgProv = (prov) => cfg[prov] || { tipo:'COP', valor:'' }
   const setCfgProv = (prov, patch) => setCfg(prev=> ({...prev, [prov]: {...getCfgProv(prov), ...patch}}))
-  const toggleAll = (prov, visible, checked) => { setSeleccionados(s=>{ const n={...s}; n[prov]= checked ? new Set(visible.map(v=>v.referencia)) : new Set(); return n }) }
-  const toggleOne = (prov, ref, checked) => { setSeleccionados(s=>{ const set=new Set(s[prov]||[]); if(checked) set.add(ref); else set.delete(ref); return {...s,[prov]:set} }) }
+  const toggleAll = (prov, visible, checked) => { setSeleccionados(s=>{ const n={...s}; n[prov]= checked ? new Set(visible.map(v=>v.referencia+'||'+v.talla)) : new Set(); return n }) }
+  const toggleOne = (prov, it, checked) => { setSeleccionados(s=>{ const set=new Set(s[prov]||[]); const key=it.referencia+'||'+it.talla; if(checked) set.add(key); else set.delete(key); return {...s,[prov]:set} }) }
   const aplicarLote = (prov, visible) => {
     const c=getCfgProv(prov); const val=Number(String(c.valor).replace(/[^0-9.-]/g,''))
     if(!val && c.tipo!=='FIJO') return alert('Pon un valor')
-    const sel=seleccionados[prov]; const refs = sel && sel.size>0 ? Array.from(sel) : visible.map(v=>v.referencia)
+    const sel=seleccionados[prov]; 
+    let refs=[]
+    if(sel && sel.size>0){
+      refs = Array.from(sel).map(k=>k.split('||')[0])
+    }else{
+      refs = visible.map(v=>v.referencia)
+    }
     if(!refs.length) return alert('Nada seleccionado')
     const newInc={...incrementos}; const newPV={...preciosVenta}
-    refs.forEach(ref=>{ const item=visible.find(v=>v.referencia===ref); const costo=getCosto(item||{referencia:ref}); let venta=costo; if(c.tipo==='COP') { newInc[ref]=val; venta=costo+val } else if(c.tipo==='PORC') { const inc=Math.round(costo*val/100); newInc[ref]=inc; venta=costo+inc } else if(c.tipo==='FIJO') { newInc[ref]=val-costo; venta=val } newPV[ref]=venta })
+    refs.forEach(ref=>{ 
+      const item=visible.find(v=>v.referencia===ref); 
+      const costo=getCosto(item||{referencia:ref}); 
+      let venta=costo; 
+      if(c.tipo==='COP') { newInc[ref]=val; venta=costo+val } 
+      else if(c.tipo==='PORC') { const inc=Math.round(costo*val/100); newInc[ref]=inc; venta=costo+inc } 
+      else if(c.tipo==='FIJO') { newInc[ref]=val-costo; venta=val } 
+      newPV[ref]=venta 
+    })
     setIncrementos(newInc); setPreciosVenta(newPV)
   }
   const onChangeIncrementoIndividual = (ref, valorStr) => {
@@ -109,7 +141,7 @@ export default function TabCatalogo({ empresa }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-2">
-        <div><h2 className="text-xl font-black uppercase">ENLACES PROVEEDORES - LISTADO MAESTRO</h2><p className="text-sm text-gray-500">{empresaNombre} - {proveedores.length} prov - {listado.length} refs - Scan 8:30 y 14:30 {scanProgress&&` - ${scanProgress}`} {loadingListado&&'(cargando...)'}</p></div>
+        <div><h2 className="text-xl font-black uppercase">ENLACES PROVEEDORES - LISTADO MAESTRO V4</h2><p className="text-sm text-gray-500">{empresaNombre} - {proveedores.length} prov - {listado.length} refs - Scan 8:30 y 14:30 V4 BULLETPROOF {scanProgress&&` - ${scanProgress}`} {loadingListado&&'(cargando...)'}</p></div>
         <div className="flex gap-2">
           <button onClick={()=>window.open(urlCatalogo,'_blank')} className="bg-green-600 text-white px-3 py-2 rounded font-black text-xs">VER CATALOGO</button>
           <button onClick={escanearAhora} className="bg-orange-500 text-white px-4 py-2 rounded font-black text-xs">ESCANEAR AHORA {scanProgress?`(${scanProgress})`:''}</button>
@@ -129,8 +161,7 @@ export default function TabCatalogo({ empresa }) {
       </div>
       <div className="grid gap-3">
         {proveedores.map(p=>{
-          const visible=listado.filter(l=> l.proveedor_nombre===p.nombre)
-          const listToShow=visible.length?visible:listado
+          const listToShow=listado.filter(l=> l.proveedor_nombre===p.nombre)
           const abierto=abiertos[p.nombre]!==false
           const c=getCfgProv(p.nombre)
           const sel=seleccionados[p.nombre]||new Set()
@@ -138,7 +169,7 @@ export default function TabCatalogo({ empresa }) {
           return(
             <div key={p.nombre} className="bg-white p-3 rounded shadow border">
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2"><span className="font-black text-xs uppercase">{p.nombre}</span><span className="bg-green-100 px-2 py-0.5 rounded text-xs font-bold">ACTIVO</span><span className="bg-black text-white px-2 py-0.5 rounded text-xs">{listToShow.length} refs</span></div>
+                <div className="flex items-center gap-2"><span className="font-black text-xs uppercase">{p.nombre}</span><span className="bg-green-100 px-2 py-0.5 rounded text-xs font-bold">ACTIVO</span><span className="bg-black text-white px-2 py-0.5 rounded text-xs">{listToShow.length} refs V4</span></div>
                 <div className="flex gap-2"><button onClick={()=>toggle(p.nombre)} className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{abierto?'−':'＋'}</button><button onClick={()=>eliminar(p.nombre)} className="bg-red-500 text-white px-2 py-1 rounded text-xs">X</button></div>
               </div>
               {abierto && <div className="mt-3 space-y-3">
@@ -150,11 +181,11 @@ export default function TabCatalogo({ empresa }) {
                   </div>
                 </div>
                 <div className="bg-white border rounded overflow-hidden">
-                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, listToShow, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO - {p.nombre} - {sel.size}/{listToShow.length} sel - DESPLEGADO AUTOMATICO - PRECIOS REALES DIFERENTES</span></div>
+                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, listToShow, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO V4 - {p.nombre} - {sel.size}/{listToShow.length} sel - PRECIOS REALES DIFERENTES POR REF</span></div>
                   <div className="overflow-auto max-h-[700px]">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, listToShow, e.target.checked)}/></th><th className="p-2 text-left">Foto REAL</th><th className="p-2 text-left">Referencia</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio Proveedor REAL</th><th className="p-2 text-left bg-orange-100">Incremento COP</th><th className="p-2 text-left bg-green-100">Precio Venta Público</th><th className="p-2 text-left">Stock REAL</th></tr></thead>
-                      <tbody>{listToShow.map((it,i)=>{ const img=getImg(it); const costo=getCosto(it); const inc=getIncremento(it.referencia); const venta=getVentaPublica(it); const isSel=sel.has(it.referencia); return(<tr key={i} className={`border-t ${isSel?'bg-orange-50':''} ${costo===0?'bg-red-50':''}`}><td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(p.nombre, it.referencia, e.target.checked)}/></td><td className="p-1">{img?<img src={img} className="h-10 w-10 object-contain bg-white"/>:<span className="text-gray-400">—</span>}</td><td className="p-2 font-bold text-[10px]">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2 bg-blue-50"><div className={`font-black text-sm ${costo===0?'text-red-600':'text-blue-800'}`}>{costo===0?'$0 - esperando MBR':`$${costo.toLocaleString('es-CO')}`}</div></td><td className="p-2 bg-orange-50"><input type="number" value={incrementos[it.referencia]||''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="25000" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/></td><td className="p-2 bg-green-50"><div className="font-black text-green-700 text-sm">${venta.toLocaleString('es-CO')}</div><div className="text-[9px] text-gray-600">{costo.toLocaleString('es-CO')} + {inc.toLocaleString('es-CO')}</div></td><td className="p-2 text-center font-bold">{it.stock_proveedor||10}</td></tr>)})}</tbody>
+                      <tbody>{listToShow.map((it,i)=>{ const img=getImg(it); const costo=getCosto(it); const inc=getIncremento(it.referencia); const venta=getVentaPublica(it); const isSel=sel.has(it.referencia+'||'+it.talla); return(<tr key={it.referencia+'-'+it.talla+'-'+i} className={`border-t ${isSel?'bg-orange-50':''} ${costo===0?'bg-red-50':''}`}><td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(p.nombre, it, e.target.checked)}/></td><td className="p-1">{img?<img src={img} className="h-10 w-10 object-contain bg-white"/>:<span className="text-gray-400">—</span>}</td><td className="p-2 font-bold text-[10px]">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2 bg-blue-50"><div className={`font-black text-sm ${costo===0?'text-red-600':'text-blue-800'}`}>{costo===0?'$0':`$${costo.toLocaleString('es-CO')}`}</div></td><td className="p-2 bg-orange-50"><input type="number" value={incrementos[it.referencia]||''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="25000" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/></td><td className="p-2 bg-green-50"><div className="font-black text-green-700 text-sm">${venta.toLocaleString('es-CO')}</div><div className="text-[9px] text-gray-600">{costo.toLocaleString('es-CO')} + {inc.toLocaleString('es-CO')}</div></td><td className="p-2 text-center font-bold">{it.stock_proveedor}</td></tr>)})}</tbody>
                     </table>
                   </div>
                 </div>
