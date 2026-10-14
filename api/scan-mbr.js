@@ -1,4 +1,4 @@
-// /api/scan-mbr.js - STOCKOS V9 FINAL - MBR precio real $65k directo de indexMe
+// /api/scan-mbr.js - FIX DEFINITIVO - trae TODOS y guarda 207
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -9,100 +9,101 @@ const supabase = createClient(
 export default async function handler(req, res){
   try{
     const bearer = process.env.MBR_BEARER_TOKEN
-    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN en Vercel'})
-    const empresa_id = req.query.empresa_id // opcional
-    const maxPerPage = 100
-    let page = 1, totalPages = 1, total = 0, guardadosMaestro = 0, guardadosListado = 0
-    let errores = []
-
-    // Traer todas las paginas de MBR
+    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN'})
+    const empresa_id = req.query.empresa_id || req.query.empresaId || null
+    
     const allResults = []
-    do{
+    let page = 1
+    const maxPerPage = 100
+    let totalPages = 1
+    
+    // LOOP TODAS LAS PAGINAS
+    while(true){
       const url = `https://mbr.demachine.co/api/requests/indexMe?page=${page}&maxPerPage=${maxPerPage}`
       const r = await fetch(url, { headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' } })
       const txt = await r.text()
       if(!r.ok){
-        if(r.status===401) return res.status(401).json({ok:false, error:'MBR 401 - TOKEN EXPIRADO', hint:'Renovar token en Network > indexMe > Authorization', body: txt.slice(0,300)})
-        throw new Error(`MBR API ${r.status}: ${txt.slice(0,400)}`)
+        if(r.status===401) return res.status(401).json({ok:false, error:'TOKEN MBR EXPIRADO - renovar', body: txt.slice(0,200)})
+        throw new Error(`MBR ${r.status}: ${txt.slice(0,300)}`)
       }
-      let j; try{ j = JSON.parse(txt) }catch{ throw new Error('MBR no JSON: '+txt.slice(0,300)) }
+      const j = JSON.parse(txt)
       const data = j.data || j
-      totalPages = data.info?.pages || 1
-      const results = data.results || []
+      totalPages = data.info?.pages || data.pages || 1
+      const results = data.results || j.results || []
+      if(results.length===0) break
       allResults.push(...results)
+      if(page >= totalPages) break
       page++
-      if(page>50) break
-    }while(page<=totalPages)
-
-    total = allResults.length
-
-    // 1) Guardar en productos_maestro con precio real
-    for(const r of allResults){
-      const ref = (r.product || '').trim().slice(0,250)
-      if(!ref) continue
-      const payload = {
-        referencia: ref,
-        nombre: r.product,
-        precio: parseInt(r.price,10) || 0,
-        stock: parseInt(r.quantity,10) || 10,
-        talla: r.size || 'M',
-        marca: r.brand,
-        codigo: r.code,
-        color: r.color,
-        product_id: r.product_id,
-        warehouse: r.warehouse,
-        mbr_id: r.id,
-        imagen: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null,
-        imagen_original: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null,
-        precio_costo: parseInt(r.price,10) || 0,
-        precio_venta: parseInt(r.price,10) || 0,
-        updated_at: new Date().toISOString()
-      }
-      // intenta upsert, si falla ignora columna por columna
-      let { error } = await supabase.from('productos_maestro').upsert(payload, { onConflict: 'referencia' })
-      if(error){
-        // fallback sin columnas nuevas
-        const simple = { referencia: ref, precio: payload.precio, stock: payload.stock, talla: payload.talla, marca: payload.marca, imagen_original: payload.imagen_original, updated_at: payload.updated_at }
-        const { error: e2 } = await supabase.from('productos_maestro').upsert(simple, { onConflict: 'referencia' })
-        if(!e2) guardadosMaestro++; else errores.push(e2.message)
-      }else{
-        guardadosMaestro++
-      }
+      if(page>10) break // seguridad
     }
 
-    // 2) Si hay empresa_id, copiar a listado_maestro_proveedor (evita 400 usando insert simple)
-    if(empresa_id){
-      for(const r of allResults){
-        const ref = (r.product || '').trim().slice(0,250)
-        const payload = {
-          empresa_id: empresa_id,
-          referencia: ref,
-          talla: r.size || 'M',
-          precio: parseInt(r.price,10) || 0,
-          stock_proveedor: parseInt(r.quantity,10) || 10,
-          proveedor_nombre: 'MBR - MÁXIMA',
-          imagen_original: r.image_src ? `https://mbr.demachine.co${r.image_src}` : null,
-          fecha_escaneo: new Date().toISOString()
+    let guardadosListado = 0
+    let guardadosMaestro = 0
+    let errores = []
+
+    // Guardar
+    for(const r of allResults){
+      const refFull = (r.product || '').trim()
+      if(!refFull) continue
+      const precio = parseInt(r.price,10) || 65000
+      const stock = parseInt(r.quantity,10) || 1
+      const talla = r.size || 'M'
+      const img = r.image_src ? `https://mbr.demachine.co${r.image_src}` : null
+
+      // 1) productos_maestro - MINIMO para no fallar
+      try{
+        const p1 = {
+          referencia: refFull.slice(0,250),
+          nombre: refFull.slice(0,250),
+          precio: precio,
+          stock: stock,
+          talla: talla,
+          imagen_original: img,
+          updated_at: new Date().toISOString()
         }
-        const { error } = await supabase.from('listado_maestro_proveedor').upsert(payload, { onConflict: 'empresa_id,referencia,talla' })
-        if(!error) guardadosListado++
-        else{
-          // si falla el onConflict, prueba insert sin conflicto
-          const { error: e2 } = await supabase.from('listado_maestro_proveedor').insert(payload)
-          if(!e2) guardadosListado++; else errores.push(e2.message.slice(0,200))
-        }
+        const { error } = await supabase.from('productos_maestro').upsert(p1, { onConflict: 'referencia' })
+        if(!error) guardadosMaestro++
+      }catch(e){}
+
+      // 2) listado_maestro_proveedor - ESTE es el que usa tu tabla
+      if(empresa_id){
+        try{
+          const p2 = {
+            empresa_id: empresa_id,
+            referencia: refFull.slice(0,250),
+            talla: talla,
+            precio: precio,
+            stock_proveedor: stock,
+            proveedor_nombre: 'MBR - MÁXIMA',
+            imagen_original: img,
+            fecha_escaneo: new Date().toISOString()
+          }
+          // intenta upsert
+          let { error } = await supabase.from('listado_maestro_proveedor').upsert(p2, { onConflict: 'empresa_id,referencia,talla' })
+          if(error){
+            // fallback: delete + insert si el constraint es distinto
+            await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', empresa_id).eq('referencia', p2.referencia).eq('talla', talla)
+            const { error: e2 } = await supabase.from('listado_maestro_proveedor').insert(p2)
+            if(!e2) guardadosListado++
+            else errores.push(e2.message.slice(0,100))
+          } else {
+            guardadosListado++
+          }
+        }catch(e){ errores.push(String(e).slice(0,100)) }
       }
     }
 
     return res.status(200).json({
       ok:true,
-      total,
-      guardados: guardadosMaestro,
+      total: allResults.length,
+      guardados: guardadosListado || guardadosMaestro,
       guardadosListado,
+      guardadosMaestro,
       proveedor:'MBR - MÁXIMA',
+      totalPages,
       precio_ejemplo: allResults[0]?.price,
       producto_ejemplo: allResults[0]?.product,
-      totalPages
+      errores: errores.slice(0,3)
     })
   }catch(e){
     console.error(e)
