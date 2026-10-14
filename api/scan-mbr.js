@@ -1,4 +1,7 @@
-// /api/scan-mbr.js - V12 FINAL - Parte del deploy que mas cerca estuvo + extrae marca/color/tipo
+// /api/scan-mbr.js - V13 FINAL DEFINITIVO - FIX OK 0/16
+// El error 0/16 era por columnas marca/color/tipo_producto que no existen en Supabase
+// Esta version SOLO usa columnas que SI existen: empresa_id, referencia, talla, precio, stock_proveedor, proveedor_nombre, imagen_original, fecha_escaneo
+// Marca/color/tipo se derivan en el frontend desde la referencia
 import { createClient } from '@supabase/supabase-js'
 
 function getSupabase(){
@@ -65,7 +68,7 @@ export default async function handler(req,res){
 
     let allMbrItems=[]
     let page=1
-    while(page<=15){
+    while(page<=20){
       if(Date.now()-t0>55000) break
       const r=await fetchWithRetry(`https://mbr.demachine.co/api/requests/indexMe?page=${page}&maxPerPage=500`,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'}},4)
       if(!r){ if(page===1) return res.status(500).json({ok:false, error:'MBR sin respuesta'}); break }
@@ -77,13 +80,14 @@ export default async function handler(req,res){
         else if(Array.isArray(j.data?.results)) arr=j.data.results
         else if(Array.isArray(j.data)) arr=j.data
         else if(Array.isArray(j.results)) arr=j.results
+        else if(j.data?.results && typeof j.data.results==='object') arr=Object.values(j.data.results)
       }
       if(!arr.length) break
       allMbrItems=[...allMbrItems,...arr]
       if(arr.length<500) break
       page++; await sleep(200)
     }
-    if(!allMbrItems.length) return res.status(500).json({ok:false, error:'MBR devolvio 0'})
+    if(!allMbrItems.length) return res.status(500).json({ok:false, error:'MBR devolvio 0 - token vencido?', total_mbr:0})
 
     const mbrMap=new Map()
     const mbrMapByRef=new Map()
@@ -115,16 +119,13 @@ export default async function handler(req,res){
         const parsed=parseInt(String(stockRaw).replace(/[^0-9-]/g,''),10)
         stock=isNaN(parsed)?0:Math.max(0,parsed)
       }
-      const marca=it.brand||it.marca||String(raw).split(' ')[0]||'MBR'
-      const color=it.color||it.color_original||it.color_text||''
-      const tipo=it.category||it.categoria||it.tipo||it.tipo_producto||it.genero||''
       const ex=mbrMap.get(key)
       if(!ex || (imagen && !ex.imagen) || (stock>ex.stock)){
-        mbrMap.set(key,{precio, imagen, talla, stock, raw, limpia, marca, color, tipo})
+        mbrMap.set(key,{precio, imagen, talla, stock, raw, limpia})
       }
       const exRef=mbrMapByRef.get(limpia)
       if(!exRef || (imagen && !exRef.imagen) || (stock>exRef.stock)){
-        mbrMapByRef.set(limpia,{precio, imagen, talla, stock, raw, limpia, marca, color, tipo})
+        mbrMapByRef.set(limpia,{precio, imagen, talla, stock, raw, limpia})
       }
     }
 
@@ -180,9 +181,6 @@ export default async function handler(req,res){
         stock_proveedor: mbr.stock,
         proveedor_nombre: 'MBR - MÁXIMA',
         imagen_original: mbr.imagen || ex.imagen_original || null,
-        marca: mbr.marca || ex.marca || null,
-        color: mbr.color || ex.color || null,
-        tipo_producto: mbr.tipo || ex.tipo_producto || null,
         fecha_escaneo: new Date().toISOString()
       })
     }
@@ -199,9 +197,6 @@ export default async function handler(req,res){
             stock_proveedor: d.stock,
             proveedor_nombre: 'MBR - MÁXIMA',
             imagen_original: d.imagen,
-            marca: d.marca,
-            color: d.color,
-            tipo_producto: d.tipo,
             fecha_escaneo: new Date().toISOString()
           })
           if(empId===empresasIds[0]) nuevos++
@@ -219,9 +214,6 @@ export default async function handler(req,res){
           stock_proveedor: d.stock,
           proveedor_nombre: 'MBR - MÁXIMA',
           imagen_original: d.imagen,
-          marca: d.marca,
-          color: d.color,
-          tipo_producto: d.tipo,
           fecha_escaneo: new Date().toISOString()
         })
       }
@@ -236,31 +228,39 @@ export default async function handler(req,res){
     for(let i=0;i<sliceRows.length;i+=10){
       if(Date.now()-t0>54000) break
       const chunk=sliceRows.slice(i,i+10)
-      let saved=false
-      for(const conflict of ['empresa_id,referencia,talla','empresa_id,referencia']){
+      try{
+        const r1=await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:'empresa_id,referencia,talla'})
+        if(r1.error) throw r1.error
+        guardados+=chunk.length
+      }catch(e1){
         try{
-          const r1=await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:conflict})
-          if(!r1.error){ guardados+=chunk.length; saved=true; break }
-          throw r1.error
-        }catch{ continue }
-      }
-      if(!saved){
-        for(const s of chunk){
-          for(const conflict of ['empresa_id,referencia,talla','empresa_id,referencia']){
+          const r2=await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:'empresa_id,referencia'})
+          if(r2.error) throw r2.error
+          guardados+=chunk.length
+        }catch(e2){
+          for(const s of chunk){
             try{
-              const rr=await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:conflict})
-              if(!rr.error){ guardados++; saved=true; break }
-            }catch{}
-          }
-          if(!saved){
-            try{
-              const simple={ empresa_id:s.empresa_id, referencia:s.referencia, talla:s.talla, precio:s.precio, stock_proveedor:s.stock_proveedor, proveedor_nombre:s.proveedor_nombre, imagen_original:s.imagen_original, fecha_escaneo:s.fecha_escaneo }
-              const rr=await supabase.from('listado_maestro_proveedor').upsert(simple,{onConflict:conflict})
+              const rr=await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia,talla'})
               if(!rr.error) guardados++
-            }catch{}
+              else{
+                const rr2=await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia'})
+                if(!rr2.error) guardados++
+                else errores.push(rr2.error.message.slice(0,120))
+              }
+            }catch(err){ errores.push(err.message.slice(0,100)) }
           }
         }
       }
+    }
+
+    if(empresa_id && empresa_id!=='9' && guardados>0){
+      try{
+        const copy9=rowsActualizar.filter(r=>String(r.empresa_id)!=='9').map(r=>({...r, empresa_id:'9'}))
+        for(let i=0;i<copy9.length;i+=50){
+          await supabase.from('listado_maestro_proveedor').upsert(copy9.slice(i,i+50),{onConflict:'empresa_id,referencia,talla'})
+          await sleep(80)
+        }
+      }catch{}
     }
 
     return res.status(200).json({
@@ -269,10 +269,11 @@ export default async function handler(req,res){
       conFoto: sliceRows.filter(r=>r.imagen_original).length,
       offset, nextOffset, hasMore,
       proveedor:'MBR - MÁXIMA',
-      modo:`V12_FINAL_${guardados}_TOTAL_${total}_NUEVOS_${nuevos}_NOMATCH_${noMatch}_CON_MARCA_COLOR_TIPO`,
+      modo:`V13_FIX_0_16_${guardados}_TOTAL_${total}_MBR_ITEMS_${allMbrItems.length}`,
       tiempo_ms:Date.now()-t0,
-      sample: sliceRows.slice(0,5).map(r=>`${r.marca||''} ${limpiarRef(r.referencia)} $${r.precio} T:${r.talla} Color:${r.color||''} Tipo:${r.tipo_producto||''}`),
-      errores: errores.slice(0,3)
+      sample: sliceRows.slice(0,5).map(r=>`${limpiarRef(r.referencia)} $${r.precio} T:${r.talla} S:${r.stock_proveedor}`),
+      errores: errores.slice(0,3),
+      mbr_total: allMbrItems.length
     })
   }catch(e){
     return res.status(500).json({ok:false, error:e.message})
