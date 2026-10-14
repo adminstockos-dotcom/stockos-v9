@@ -1,5 +1,4 @@
-// /api/scan-mbr.js - CORREGIDO FINAL - 207/207 PRECIOS COMPLETOS
-// CUMPLE: sin maxPerPage, batch 5 paralelo, retry, parse robusto, bulk upsert, SERVICE_ROLE
+// /api/scan-mbr.js - CORREGIDO FINAL SIN COLUMNA nombre - 207/207
 import { createClient } from '@supabase/supabase-js'
 
 function getSupabase(){
@@ -24,7 +23,6 @@ export default async function handler(req, res){
     if(!empresa_id) return res.status(400).json({ok:false, error:'Falta empresa_id'})
 
     const supabase = getSupabase()
-
     const sleep = (ms)=>new Promise(r=>setTimeout(r,ms))
 
     const fetchPageRetry = async (page, retries=3)=>{
@@ -32,26 +30,15 @@ export default async function handler(req, res){
         try{
           const url = `https://mbr.demachine.co/api/requests/indexMe?page=${page}`
           const r = await fetch(url, { headers: { Authorization: `Bearer ${bearer}`, Accept:'application/json' } })
-          if(r.status===429){
-            await sleep(800 + i*500)
-            continue
-          }
-          if(!r.ok) {
-            if(i===retries-1) return []
-            await sleep(500)
-            continue
-          }
+          if(r.status===429){ await sleep(800 + i*500); continue }
+          if(!r.ok){ await sleep(500); if(i===retries-1) return []; continue }
           const j = await r.json().catch(()=>null)
-          const results = j?.data?.results || j?.results || []
-          return results
-        }catch{
-          await sleep(500)
-        }
+          return j?.data?.results || j?.results || []
+        }catch{ await sleep(500) }
       }
       return []
     }
 
-    // Fetch secuencial controlado de 5 en 5 para no rate-limit
     const all = []
     for(let batchStart=1; batchStart<=30; batchStart+=5){
       const batch = []
@@ -62,21 +49,18 @@ export default async function handler(req, res){
         if(arr.length===0) emptyCount++
         else all.push(...arr)
       }
-      // si 5 vacias seguidas, terminamos (ya no hay mas paginas)
       if(emptyCount===5 && batchStart>1) break
       await sleep(300)
     }
 
-    if(all.length===0) return res.status(500).json({ok:false, error:'MBR devolvio 0 productos'})
+    if(all.length===0) return res.status(500).json({ok:false, error:'MBR devolvio 0'})
 
-    // DEDUP por referencia+talla, quedandose con el ultimo precio
     const map = new Map()
     for(const it of all){
       const refRaw = String(it.product||'').trim()
       if(!refRaw) continue
       const talla = String(it.size||'M').trim().slice(0,20)
-      const key = refRaw + '|' + talla
-      map.set(key, it)
+      map.set(refRaw + '|' + talla, it)
     }
     const uniq = Array.from(map.values())
 
@@ -92,9 +76,9 @@ export default async function handler(req, res){
       const talla = String(it.size||'M').trim().slice(0,20)
       const img = it.image_src ? `https://mbr.demachine.co${it.image_src}` : null
 
+      // SIN columna 'nombre' - solo columnas que existen en tu tabla
       maestroRows.push({
         referencia: ref,
-        nombre: ref,
         precio: precio,
         stock: stock,
         talla: talla,
@@ -114,28 +98,24 @@ export default async function handler(req, res){
       })
     }
 
-    // BULK UPSERT productos_maestro
     let guardMaestro = 0
     try{
-      const { error, count } = await supabase.from('productos_maestro').upsert(maestroRows, { onConflict:'referencia' })
+      const { error } = await supabase.from('productos_maestro').upsert(maestroRows, { onConflict:'referencia' })
       if(!error) guardMaestro = maestroRows.length
       else {
-        // fallback sin onConflict
         const { error: e2 } = await supabase.from('productos_maestro').upsert(maestroRows)
-        if(!e2) guardMaestro = maestroRows.length
-        else throw e2
+        if(e2) throw e2
+        guardMaestro = maestroRows.length
       }
     }catch(e){
       return res.status(500).json({ok:false, error:'Error maestro: '+e.message, total: uniq.length})
     }
 
-    // BULK UPSERT listado_maestro_proveedor - con fallback seguro
     let guardListado = 0
     try{
       const { error } = await supabase.from('listado_maestro_proveedor').upsert(listadoRows, { onConflict:'empresa_id,referencia,talla' })
       if(!error) guardListado = listadoRows.length
       else {
-        // si no hay constraint, borrar solo de esta empresa y reinsertar
         await supabase.from('listado_maestro_proveedor').delete().eq('empresa_id', empresa_id).eq('proveedor_nombre','MBR - MÁXIMA')
         const { error: e2 } = await supabase.from('listado_maestro_proveedor').insert(listadoRows)
         if(e2) throw e2
@@ -152,9 +132,8 @@ export default async function handler(req, res){
       guardadosListado: guardListado,
       guardadosMaestro: guardMaestro,
       proveedor:'MBR - MÁXIMA',
-      modo:'CORREGIDO_FINAL_207'
+      modo:'CORREGIDO_FINAL_SIN_NOMBRE_207'
     })
-
   }catch(e){
     return res.status(500).json({ok:false, error: e.message})
   }
