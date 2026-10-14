@@ -1,3 +1,4 @@
+
 // /api/scan-mbr.js - V13 FINAL DEFINITIVO - FIX OK 0/16
 // El error 0/16 era por columnas marca/color/tipo_producto que no existen en Supabase
 // Esta version SOLO usa columnas que SI existen: empresa_id, referencia, talla, precio, stock_proveedor, proveedor_nombre, imagen_original, fecha_escaneo
