@@ -1,17 +1,7 @@
 {
   "crons": [
-    {
-      "path": "/api/scan-mbr?limit=20",
-      "schedule": "30 13 * * *"
-    },
-    {
-      "path": "/api/scan-mbr?limit=20",
-      "schedule": "30 19 * * *"
-    }
+    { "path": "/api/scan-mbr", "schedule": "30 13 * * *" },
+    { "path": "/api/scan-mbr", "schedule": "30 19 * * *" }
   ],
-  "functions": {
-    "api/scan-mbr.js": {
-      "maxDuration": 60
-    }
-  }
+  "functions": { "api/scan-mbr.js": { "maxDuration": 60 } }
 }
