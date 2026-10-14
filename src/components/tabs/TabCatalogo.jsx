@@ -11,7 +11,7 @@ export default function TabCatalogo({ empresa }) {
   const [listado, setListado] = useState([])
   const [maestroFotos, setMaestroFotos] = useState({})
   const [loadingListado, setLoadingListado] = useState(false)
-  const [abiertos, setAbiertos] = useState({})
+  const [abiertos, setAbiertos] = useState({ 'MBR - MÁXIMA': true }) // Abierto por defecto para que despliegue
   const [seleccionados, setSeleccionados] = useState({})
   const [incrementos, setIncrementos] = useState({})
   const [preciosVenta, setPreciosVenta] = useState({})
@@ -25,7 +25,18 @@ export default function TabCatalogo({ empresa }) {
   const cargar = async () => {
     try {
       const { data } = await supabase.from('proveedores_config').select('*').eq('empresa_id', empresaId)
-      if (data?.length) setProveedores(data.map(p => ({ nombre: p.nombre_proveedor, web: p.url_web, email: p.email, whatsapp: p.grupo_whatsapp, tipo_archivo: p.tipo_archivo, activo: p.activo })))
+      if (data?.length) {
+        const provs = data.map(p => ({ nombre: p.nombre_proveedor, web: p.url_web, email: p.email, whatsapp: p.grupo_whatsapp, tipo_archivo: p.tipo_archivo, activo: p.activo }))
+        setProveedores(provs)
+        // Si no hay proveedores, crea MBR por defecto
+        if(provs.length===0){
+          const mbrDefault = { nombre: 'MBR - MÁXIMA', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel', activo: true }
+          setProveedores([mbrDefault])
+        }
+      } else {
+        // Fallback MBR por defecto
+        setProveedores([{ nombre: 'MBR - MÁXIMA', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel', activo: true }])
+      }
       const savedInc = localStorage.getItem(`stockos_incrementos_${empresaId}`)
       if(savedInc) setIncrementos(JSON.parse(savedInc))
       const savedPV = localStorage.getItem(`stockos_precios_venta_${empresaId}`)
@@ -40,7 +51,7 @@ export default function TabCatalogo({ empresa }) {
       const mapFotos = {}
       if(maestro){ maestro.forEach(f=>{ if(f.referencia && !mapFotos[f.referencia]) mapFotos[f.referencia]=f }); setMaestroFotos(mapFotos) }
       const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('fecha_escaneo',{ascending:false}).limit(1500)
-      if(data) setListado(data)
+      if(data && data.length>0) setListado(data)
       else if(maestro) setListado(maestro.map(m => ({ referencia: m.referencia, talla: m.talla || 'M', precio: m.precio || 0, stock_proveedor: m.stock || 10, proveedor_nombre: 'MBR - MÁXIMA', imagen_original: m.imagen_original })))
     } catch(e){ console.error(e) } finally{ setLoadingListado(false) }
   }
@@ -58,7 +69,7 @@ export default function TabCatalogo({ empresa }) {
         setScanProgress(`Escaneando ${offset}...`)
         const r = await fetch(`${window.location.origin}/api/scan-mbr?empresa_id=${empresaId}&offset=${offset}&limit=20&t=${Date.now()}`, { cache: 'no-store' })
         const text = await r.text()
-        let j; try{ j = JSON.parse(text) }catch{ throw new Error(text.slice(0,300)) }
+        let j; try{ j = JSON.parse(text) }catch{ throw new Error(text.slice(0,500)) }
         if(!j.ok) throw new Error(j.error || 'Error en escaneo')
         totalGuardados+=j.guardados||0
         total=j.total||total
