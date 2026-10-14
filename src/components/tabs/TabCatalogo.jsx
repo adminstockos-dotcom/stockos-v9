@@ -26,8 +26,9 @@ export default function TabCatalogo({ empresa }) {
       const { data } = await supabase.from('proveedores_config').select('*').eq('empresa_id', empresaId)
       if (data?.length) {
         const provs = data.map(p => ({ nombre: p.nombre_proveedor, web: p.url_web, email: p.email, whatsapp: p.grupo_whatsapp, tipo_archivo: p.tipo_archivo, activo: p.activo }))
-        setProveedores(provs.length?provs:[{ nombre: 'MBR - MÁXIMA', activo: true }])
-        const openAll={}; provs.forEach(p=> openAll[p.nombre]=true); openAll['MBR - MÁXIMA']=true
+        const finalProvs = provs.length?provs:[{ nombre: 'MBR - MÁXIMA', activo: true }]
+        setProveedores(finalProvs)
+        const openAll={}; finalProvs.forEach(p=> openAll[p.nombre]=true)
         setAbiertos(openAll)
       }
       const savedInc = localStorage.getItem(`stockos_incrementos_${empresaId}`)
@@ -41,7 +42,7 @@ export default function TabCatalogo({ empresa }) {
     try {
       setLoadingListado(true)
       const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('referencia',{ascending:true}).limit(2000)
-      if(data && data.length>0) setListado(data)
+      if(data) setListado(data)
     } catch(e){ console.error(e) } finally{ setLoadingListado(false) }
   }
 
@@ -63,7 +64,7 @@ export default function TabCatalogo({ empresa }) {
         totalGuardados+=j.guardados||0
         total=j.total||total
         hasMore=j.hasMore
-        if(hasMore){ offset=j.nextOffset||offset+10; await new Promise(res=>setTimeout(res, 600)) } else break
+        if(hasMore){ offset=j.nextOffset||offset+10; await new Promise(res=>setTimeout(res, 700)) } else break
       }
       setScanProgress('')
       alert(`OK ${totalGuardados}/${total} productos con precio REAL, foto REAL, talla y stock - sin borrar - MBR`)
@@ -82,7 +83,7 @@ export default function TabCatalogo({ empresa }) {
   }
   const eliminar = async (nombre) => { if(!confirm(`¿Borrar ${nombre}?`))return; setProveedores(prev=>prev.filter(p=>p.nombre!==nombre)); try{ await supabase.from('proveedores_config').delete().eq('empresa_id',empresaId).eq('nombre_proveedor',nombre)}catch{} }
   const toggle = (nombre) => setAbiertos(prev=>({...prev,[nombre]:!prev[nombre]}))
-  const getImg = (it) => it.imagen_original || it.imagen_sin_fondo
+  const getImg = (it) => it.imagen_original || it.imagen_sin_fondo || null
   const getCosto = (it) => Number(it.precio||0)
   const getIncremento = (ref) => Number(incrementos[ref]||0)
   const getVentaPublica = (it) => { if(preciosVenta[it.referencia]) return Number(preciosVenta[it.referencia]); return getCosto(it)+getIncremento(it.referencia) }
@@ -128,16 +129,16 @@ export default function TabCatalogo({ empresa }) {
       </div>
       <div className="grid gap-3">
         {proveedores.map(p=>{
-          const itemsProv=listado.filter(l=> l.proveedor_nombre===p.nombre || p.nombre.includes('MBR'))
-          const visible=itemsProv.length>0?itemsProv:listado
+          const visible=listado.filter(l=> l.proveedor_nombre===p.nombre)
+          const listToShow=visible.length?visible:listado
           const abierto=abiertos[p.nombre]!==false
           const c=getCfgProv(p.nombre)
           const sel=seleccionados[p.nombre]||new Set()
-          const allChecked=visible.length>0 && sel.size===visible.length
+          const allChecked=listToShow.length>0 && sel.size===listToShow.length
           return(
             <div key={p.nombre} className="bg-white p-3 rounded shadow border">
               <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2"><span className="font-black text-xs uppercase">{p.nombre}</span><span className="bg-green-100 px-2 py-0.5 rounded text-xs font-bold">ACTIVO</span><span className="bg-black text-white px-2 py-0.5 rounded text-xs">{visible.length} refs</span></div>
+                <div className="flex items-center gap-2"><span className="font-black text-xs uppercase">{p.nombre}</span><span className="bg-green-100 px-2 py-0.5 rounded text-xs font-bold">ACTIVO</span><span className="bg-black text-white px-2 py-0.5 rounded text-xs">{listToShow.length} refs</span></div>
                 <div className="flex gap-2"><button onClick={()=>toggle(p.nombre)} className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{abierto?'−':'＋'}</button><button onClick={()=>eliminar(p.nombre)} className="bg-red-500 text-white px-2 py-1 rounded text-xs">X</button></div>
               </div>
               {abierto && <div className="mt-3 space-y-3">
@@ -145,15 +146,15 @@ export default function TabCatalogo({ empresa }) {
                   <div className="flex gap-2 items-end flex-wrap">
                     <div><label className="text-[10px] font-bold block">Tipo lote</label><select value={c.tipo} onChange={e=>setCfgProv(p.nombre,{tipo:e.target.value})} className="border p-2 rounded text-xs font-bold bg-white"><option value="COP">$ COP</option><option value="PORC">% </option><option value="FIJO">Fijo</option></select></div>
                     <div><label className="text-[10px] font-bold block">Valor</label><input type="number" value={c.valor} onChange={e=>setCfgProv(p.nombre,{valor:e.target.value})} placeholder="25000" className="border p-2 rounded text-xs font-black w-32"/></div>
-                    <button onClick={()=>aplicarLote(p.nombre, visible)} className="bg-black text-white px-4 py-2 rounded font-black text-xs">APLICAR A {sel.size>0?sel.size:'TODOS'} → PUBLICO</button>
+                    <button onClick={()=>aplicarLote(p.nombre, listToShow)} className="bg-black text-white px-4 py-2 rounded font-black text-xs">APLICAR A {sel.size>0?sel.size:'TODOS'} → PUBLICO</button>
                   </div>
                 </div>
                 <div className="bg-white border rounded overflow-hidden">
-                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO - {p.nombre} - {sel.size}/{visible.length} sel - DESPLEGADO AUTOMATICO - PRECIOS REALES</span></div>
+                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, listToShow, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO - {p.nombre} - {sel.size}/{listToShow.length} sel - DESPLEGADO AUTOMATICO - PRECIOS REALES DIFERENTES</span></div>
                   <div className="overflow-auto max-h-[700px]">
                     <table className="w-full text-xs">
-                      <thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)}/></th><th className="p-2 text-left">Foto REAL</th><th className="p-2 text-left">Referencia</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio Proveedor REAL</th><th className="p-2 text-left bg-orange-100">Incremento COP</th><th className="p-2 text-left bg-green-100">Precio Venta Público</th><th className="p-2 text-left">Stock REAL</th></tr></thead>
-                      <tbody>{visible.map((it,i)=>{ const img=getImg(it); const costo=getCosto(it); const inc=getIncremento(it.referencia); const venta=getVentaPublica(it); const isSel=sel.has(it.referencia); return(<tr key={i} className={`border-t ${isSel?'bg-orange-50':''} ${costo===0?'bg-red-50':''}`}><td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(p.nombre, it.referencia, e.target.checked)}/></td><td className="p-1">{img?<img src={img} className="h-10 w-10 object-contain bg-white"/>:<span className="text-gray-400">—</span>}</td><td className="p-2 font-bold text-[10px]">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2 bg-blue-50"><div className={`font-black text-sm ${costo===0?'text-red-600':'text-blue-800'}`}>{costo===0?'$0 - esperando MBR':`$${costo.toLocaleString('es-CO')}`}</div></td><td className="p-2 bg-orange-50"><input type="number" value={incrementos[it.referencia]||''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="25000" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/></td><td className="p-2 bg-green-50"><div className="font-black text-green-700 text-sm">${venta.toLocaleString('es-CO')}</div><div className="text-[9px] text-gray-600">{costo.toLocaleString('es-CO')} + {inc.toLocaleString('es-CO')}</div></td><td className="p-2 text-center font-bold">{it.stock_proveedor||10}</td></tr>)})}</tbody>
+                      <thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, listToShow, e.target.checked)}/></th><th className="p-2 text-left">Foto REAL</th><th className="p-2 text-left">Referencia</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio Proveedor REAL</th><th className="p-2 text-left bg-orange-100">Incremento COP</th><th className="p-2 text-left bg-green-100">Precio Venta Público</th><th className="p-2 text-left">Stock REAL</th></tr></thead>
+                      <tbody>{listToShow.map((it,i)=>{ const img=getImg(it); const costo=getCosto(it); const inc=getIncremento(it.referencia); const venta=getVentaPublica(it); const isSel=sel.has(it.referencia); return(<tr key={i} className={`border-t ${isSel?'bg-orange-50':''} ${costo===0?'bg-red-50':''}`}><td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(p.nombre, it.referencia, e.target.checked)}/></td><td className="p-1">{img?<img src={img} className="h-10 w-10 object-contain bg-white"/>:<span className="text-gray-400">—</span>}</td><td className="p-2 font-bold text-[10px]">{it.referencia}</td><td className="p-2">{it.talla}</td><td className="p-2 bg-blue-50"><div className={`font-black text-sm ${costo===0?'text-red-600':'text-blue-800'}`}>{costo===0?'$0 - esperando MBR':`$${costo.toLocaleString('es-CO')}`}</div></td><td className="p-2 bg-orange-50"><input type="number" value={incrementos[it.referencia]||''} onChange={e=>onChangeIncrementoIndividual(it.referencia, e.target.value)} placeholder="25000" className="border-2 border-orange-300 rounded px-2 py-1 w-28 text-xs font-black bg-white"/></td><td className="p-2 bg-green-50"><div className="font-black text-green-700 text-sm">${venta.toLocaleString('es-CO')}</div><div className="text-[9px] text-gray-600">{costo.toLocaleString('es-CO')} + {inc.toLocaleString('es-CO')}</div></td><td className="p-2 text-center font-bold">{it.stock_proveedor||10}</td></tr>)})}</tbody>
                     </table>
                   </div>
                 </div>
