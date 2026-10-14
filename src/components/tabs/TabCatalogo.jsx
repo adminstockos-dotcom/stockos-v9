@@ -6,12 +6,12 @@ export default function TabCatalogo({ empresa }) {
   const empresaNombre = empresa?.nombre || 'MAXIMA IMPORTADORES'
   const slug = empresaNombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(' ')[0] || 'maxima'
 
-  const [proveedores, setProveedores] = useState([])
+  const [proveedores, setProveedores] = useState([{ nombre: 'MBR - MÁXIMA', activo: true }])
   const [nuevoProv, setNuevoProv] = useState({ nombre: '', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel' })
   const [listado, setListado] = useState([])
   const [maestroFotos, setMaestroFotos] = useState({})
   const [loadingListado, setLoadingListado] = useState(false)
-  const [abiertos, setAbiertos] = useState({ 'MBR - MÁXIMA': true }) // Abierto por defecto para que despliegue
+  const [abiertos, setAbiertos] = useState({ 'MBR - MÁXIMA': true })
   const [seleccionados, setSeleccionados] = useState({})
   const [incrementos, setIncrementos] = useState({})
   const [preciosVenta, setPreciosVenta] = useState({})
@@ -22,20 +22,24 @@ export default function TabCatalogo({ empresa }) {
 
   useEffect(() => { cargar(); cargarListado() }, [empresaId])
 
+  // Fuerza que siempre esten abiertos todos los proveedores al cargar
+  useEffect(() => {
+    if(proveedores.length>0){
+      const openAll={}
+      proveedores.forEach(p=> openAll[p.nombre]=true)
+      setAbiertos(openAll)
+    }
+  }, [proveedores.length])
+
   const cargar = async () => {
     try {
       const { data } = await supabase.from('proveedores_config').select('*').eq('empresa_id', empresaId)
       if (data?.length) {
         const provs = data.map(p => ({ nombre: p.nombre_proveedor, web: p.url_web, email: p.email, whatsapp: p.grupo_whatsapp, tipo_archivo: p.tipo_archivo, activo: p.activo }))
         setProveedores(provs)
-        // Si no hay proveedores, crea MBR por defecto
-        if(provs.length===0){
-          const mbrDefault = { nombre: 'MBR - MÁXIMA', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel', activo: true }
-          setProveedores([mbrDefault])
-        }
-      } else {
-        // Fallback MBR por defecto
-        setProveedores([{ nombre: 'MBR - MÁXIMA', web: '', email: '', whatsapp: '', tipo_archivo: 'PDF/Excel', activo: true }])
+        const openAll={}
+        provs.forEach(p=> openAll[p.nombre]=true)
+        setAbiertos(openAll)
       }
       const savedInc = localStorage.getItem(`stockos_incrementos_${empresaId}`)
       if(savedInc) setIncrementos(JSON.parse(savedInc))
@@ -140,9 +144,9 @@ export default function TabCatalogo({ empresa }) {
       </div>
       <div className="grid gap-3">
         {proveedores.map(p=>{
-          const itemsProv=listado.filter(l=> l.proveedor_nombre===p.nombre || p.nombre.includes('MBR'))
+          const itemsProv=listado.filter(l=> l.proveedor_nombre===p.nombre || p.nombre.includes('MBR') || p.nombre.includes('MAXIMA'))
           const visible=itemsProv.length>0?itemsProv:listado
-          const abierto=abiertos[p.nombre]
+          const abierto=abiertos[p.nombre]!==false // true por defecto, nunca cerrado al inicio
           const c=getCfgProv(p.nombre)
           const sel=seleccionados[p.nombre]||new Set()
           const allChecked=visible.length>0 && sel.size===visible.length
@@ -161,7 +165,7 @@ export default function TabCatalogo({ empresa }) {
                   </div>
                 </div>
                 <div className="bg-white border rounded overflow-hidden">
-                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO - {p.nombre} - {sel.size}/{visible.length} sel</span></div>
+                  <div className="bg-black text-white p-2 flex justify-between"><span className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)} className="w-4 h-4"/>LISTADO MAESTRO - {p.nombre} - {sel.size}/{visible.length} sel - DESPLEGADO AUTOMATICO</span></div>
                   <div className="overflow-auto max-h-[700px]">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-100 font-black sticky top-0"><tr><th className="p-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(p.nombre, visible, e.target.checked)}/></th><th className="p-2 text-left">Foto</th><th className="p-2 text-left">Referencia</th><th className="p-2 text-left">Talla</th><th className="p-2 text-left">Precio Proveedor</th><th className="p-2 text-left bg-orange-100">Incremento COP</th><th className="p-2 text-left bg-green-100">Precio Venta Público</th><th className="p-2 text-left">Stock</th></tr></thead>
