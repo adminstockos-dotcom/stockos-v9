@@ -1,24 +1,10 @@
 {
   "name": "stockos-v9",
-  "private": true,
-  "version": "7.8.0",
+  "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "ws": "^8.17.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.40",
-    "tailwindcss": "^3.4.7",
-    "vite": "^5.4.8"
+    "@sparticuz/chromium": "119.0.2",
+    "playwright-core": "1.44.0"
   }
 }
