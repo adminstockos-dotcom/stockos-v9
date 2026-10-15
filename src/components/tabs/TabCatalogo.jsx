@@ -1,220 +1,281 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabase.js'
+// /api/scan-mbr.js - V13 FINAL DEFINITIVO - FIX OK 0/16
+// El error 0/16 era por columnas marca/color/tipo_producto que no existen en Supabase
+// Esta version SOLO usa columnas que SI existen: empresa_id, referencia, talla, precio, stock_proveedor, proveedor_nombre, imagen_original, fecha_escaneo
+// Marca/color/tipo se derivan en el frontend desde la referencia
+import { createClient } from '@supabase/supabase-js'
 
-export default function TabCatalogo({ empresa }) {
-  const getEmpresaId = () => {
-    try{
-      if(empresa?.id) return String(empresa.id).trim()
-      const parts = typeof window!=='undefined' ? window.location.pathname.split('/').filter(Boolean) : []
-      const idx = parts.indexOf('empresa')
-      if(idx>=0 && parts[idx+1]) return String(parts[idx+1]).trim()
-      for(const p of parts){ if(p.length>30 && p.includes('-')) return p }
-    }catch{}
-    return '9'
+function getSupabase(){
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+  if(!url || !key) throw new Error('Falta SUPABASE_URL o KEY')
+  return createClient(url, key, { auth: { persistSession: false } })
+}
+function parsePrecio(v){
+  if(v==null||v==='') return 0
+  let s=String(v).trim().replace(/[^0-9.,]/g,'')
+  if(!s) return 0
+  if(s.includes('.') && s.includes(',')){
+    if(s.lastIndexOf(',')>s.lastIndexOf('.')) s=s.replace(/\./g,'').replace(',', '.')
+    else s=s.replace(/,/g,'')
+    s=s.split('.')[0]
+  } else if(s.includes(',')){
+    const parts=s.split(',')
+    if(parts.length===2 && parts[1].length===3) s=parts.join('')
+    else if(parts[1] && parts[1].length<=2) s=parts[0]
+    else s=s.replace(/,/g,'')
+  } else if(s.includes('.')){
+    const parts=s.split('.')
+    if(parts.length===2 && parts[1].length===3) s=parts.join('')
+    else if(parts.length>2) s=s.replace(/\./g,'')
+    else if(parts.length===2 && parts[1].length<=2) s=parts[0]
   }
-  const empresaId = getEmpresaId()
-  const empresaNombre = empresa?.nombre || 'Máxima Importadores'
-  const slug = empresaNombre.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(' ')[0] || 'maxima'
-
-  const [listado, setListado] = useState([])
-  const [maestroFotos, setMaestroFotos] = useState({})
-  const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState('')
-  const [abiertos, setAbiertos] = useState({'MBR - MÁXIMA': true})
-  const [seleccionados, setSeleccionados] = useState({})
-  const [incrementos, setIncrementos] = useState({})
-  const [preciosVenta, setPreciosVenta] = useState({})
-  const [cfg, setCfg] = useState({'MBR - MÁXIMA': {tipo:'COP', valor:'25000'}})
-
-  const urlCatalogo = typeof window!=='undefined' ? `${window.location.origin}/m/${slug}` : `/m/${slug}`
-
-  useEffect(()=>{ cargarListado(); cargarStorage() },[empresaId])
-
-  const cargarStorage = () => {
+  const n=parseInt(s.replace(/[^0-9]/g,''),10)
+  return isNaN(n)?0:n
+}
+function limpiarRef(ref){
+  if(!ref) return ''
+  let r=String(ref).trim()
+  r=r.replace(/^MBR[-\s]*[A-Z0-9-]*\s+/i,'').trim()
+  r=r.replace(/^MBR[-\s]*[A-Z0-9-]+$/i,'').trim()
+  r=r.replace(/\s*[-–]\s*MBR[-\s]*[A-Z0-9-]*.*$/i,'').trim()
+  r=r.replace(/\s+MBR[-\s]*[A-Z0-9-]*.*$/i,'').trim()
+  r=r.replace(/-+$/,'').trim()
+  r=r.replace(/\s+/g,' ').trim()
+  return r
+}
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)) }
+async function fetchWithRetry(url, opts, retries=4){
+  for(let i=0;i<retries;i++){
     try{
-      const inc = localStorage.getItem(`stockos_incrementos_${empresaId}`) || localStorage.getItem('stockos_incrementos_9')
-      const pv = localStorage.getItem(`stockos_precios_venta_${empresaId}`) || localStorage.getItem('stockos_precios_venta_9')
-      if(inc) setIncrementos(JSON.parse(inc))
-      if(pv) setPreciosVenta(JSON.parse(pv))
-    }catch{}
+      const r=await fetch(url, opts)
+      if(r.status===429){ await sleep(1200*(i+1)); continue }
+      if(r.status>=500 && i<retries-1){ await sleep(800*(i+1)); continue }
+      return r
+    }catch(e){ if(i===retries-1) throw e; await sleep(800*(i+1)) }
   }
+  return null
+}
+export default async function handler(req,res){
+  const t0=Date.now()
+  try{
+    const bearer=process.env.MBR_BEARER_TOKEN
+    if(!bearer) return res.status(500).json({ok:false, error:'Falta MBR_BEARER_TOKEN'})
+    let empresa_id=req.query.empresa_id||req.query.empresaId||null
+    if(empresa_id) empresa_id=String(empresa_id).trim()
+    const offset=Math.max(0, parseInt(req.query.offset||'0',10)||0)
+    const limit=Math.min(100, Math.max(1, parseInt(req.query.limit||'50',10)||50))
+    const supabase=getSupabase()
 
-  const cargarListado = async () => {
-    try{
-      setLoading(true)
-      let all=[]
-      // maestro para foto fallback
+    let allMbrItems=[]
+    let page=1
+    while(page<=20){
+      if(Date.now()-t0>55000) break
+      const r=await fetchWithRetry(`https://mbr.demachine.co/api/requests/indexMe?page=${page}&maxPerPage=500`,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'}},4)
+      if(!r){ if(page===1) return res.status(500).json({ok:false, error:'MBR sin respuesta'}); break }
+      if(!r.ok){ if(r.status===429){ await sleep(2000); continue } if(page===1) return res.status(500).json({ok:false, error:`MBR fallo ${r.status}`}); break }
+      let j=null; try{ j=await r.json() }catch{ j=null }
+      let arr=[]
+      if(j){
+        if(Array.isArray(j)) arr=j
+        else if(Array.isArray(j.data?.results)) arr=j.data.results
+        else if(Array.isArray(j.data)) arr=j.data
+        else if(Array.isArray(j.results)) arr=j.results
+        else if(j.data?.results && typeof j.data.results==='object') arr=Object.values(j.data.results)
+      }
+      if(!arr.length) break
+      allMbrItems=[...allMbrItems,...arr]
+      if(arr.length<500) break
+      page++; await sleep(200)
+    }
+    if(!allMbrItems.length) return res.status(500).json({ok:false, error:'MBR devolvio 0 - token vencido?', total_mbr:0})
+
+    const mbrMap=new Map()
+    const mbrMapByRef=new Map()
+    for(const it of allMbrItems){
+      const raw=String(it.product||it.referencia||it.nombre||it.title||'').trim()
+      if(!raw) continue
+      const limpia=limpiarRef(raw).toUpperCase()
+      if(!limpia) continue
+      const tallaRaw=String(it.size||it.talla||it.talla_text||it.talla_num||'').trim()||'40'
+      const talla=tallaRaw.slice(0,30)
+      const key=`${limpia}||${talla.toUpperCase()}`
+      const precio=parsePrecio(it.price||it.precio||it.precio_venta||it.precio_mayorista||it.valor)
+      if(precio<=0) continue
+      let imagen=null
+      const imgSrc=it.image_src||it.imagen_original||it.image||it.imagen||it.foto||''
+      if(imgSrc){
+        const src=String(imgSrc).trim()
+        if(src){
+          if(src.startsWith('http://')||src.startsWith('https://')) imagen=src
+          else if(src.startsWith('//')) imagen=`https:${src}`
+          else if(src.startsWith('data:image')) imagen=src
+          else if(src.startsWith('/')) imagen=`https://mbr.demachine.co${src}`
+          else imagen=`https://mbr.demachine.co/${src}`
+        }
+      }
+      const stockRaw=it.quantity??it.stock??it.stockBodega??it.cantidad??it.disponible
+      let stock=0
+      if(stockRaw!=null && String(stockRaw).trim()!==''){
+        const parsed=parseInt(String(stockRaw).replace(/[^0-9-]/g,''),10)
+        stock=isNaN(parsed)?0:Math.max(0,parsed)
+      }
+      const ex=mbrMap.get(key)
+      if(!ex || (imagen && !ex.imagen) || (stock>ex.stock)){
+        mbrMap.set(key,{precio, imagen, talla, stock, raw, limpia})
+      }
+      const exRef=mbrMapByRef.get(limpia)
+      if(!exRef || (imagen && !exRef.imagen) || (stock>exRef.stock)){
+        mbrMapByRef.set(limpia,{precio, imagen, talla, stock, raw, limpia})
+      }
+    }
+
+    let empresasIds=[]
+    if(empresa_id) empresasIds=[empresa_id]
+    else{
       try{
-        const { data: maestro } = await supabase.from('productos_maestro').select('*').limit(500)
-        if(maestro){
-          const m={}
-          maestro.forEach(f=>{ if(f.referencia) m[f.referencia]=f })
-          setMaestroFotos(m)
+        let from=0; const set=new Set()
+        while(from<10000){
+          const { data }=await supabase.from('listado_maestro_proveedor').select('empresa_id').range(from, from+999)
+          if(!data||!data.length) break
+          data.forEach(d=>{ const id=String(d.empresa_id||'').trim(); if(id) set.add(id) })
+          if(data.length<1000) break
+          from+=1000
+        }
+        empresasIds=Array.from(set)
+      }catch{}
+      if(empresasIds.length===0) empresasIds=['9']
+    }
+
+    let existentesMap=new Map()
+    for(const empId of empresasIds){
+      let from=0
+      while(from<10000){
+        try{
+          const { data }=await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empId).range(from, from+999)
+          if(!data||!data.length) break
+          for(const r of data){
+            const k=`${String(r.empresa_id).trim()}||${String(r.referencia).trim()}||${String(r.talla).trim()}`.toUpperCase()
+            if(!existentesMap.has(k)) existentesMap.set(k,r)
+          }
+          if(data.length<1000) break
+          from+=1000
+          if(Date.now()-t0>54000) break
+        }catch{ break }
+      }
+    }
+    const existentes=Array.from(existentesMap.values())
+
+    let rowsActualizar=[]
+    let noMatch=0, nuevos=0
+    for(const ex of existentes){
+      const refLimpia=limpiarRef(ex.referencia).toUpperCase()
+      if(!refLimpia){ noMatch++; continue }
+      const tallaEx=String(ex.talla||'40').trim().toUpperCase()
+      let mbr=mbrMap.get(`${refLimpia}||${tallaEx}`) || mbrMapByRef.get(refLimpia)
+      if(!mbr){ noMatch++; continue }
+      rowsActualizar.push({
+        empresa_id: String(ex.empresa_id).trim(),
+        referencia: String(ex.referencia).trim(),
+        talla: String(mbr.talla||ex.talla||'40').trim(),
+        precio: mbr.precio,
+        stock_proveedor: mbr.stock,
+        proveedor_nombre: 'MBR - MÁXIMA',
+        imagen_original: mbr.imagen || ex.imagen_original || null,
+        fecha_escaneo: new Date().toISOString()
+      })
+    }
+    const existentesKeys=new Set(existentes.map(ex=>`${String(ex.empresa_id).trim()}||${limpiarRef(ex.referencia).toUpperCase()}||${String(ex.talla||'40').trim().toUpperCase()}`.toUpperCase()))
+    for(const d of mbrMap.values()){
+      for(const empId of empresasIds){
+        const k=`${empId}||${d.limpia}||${String(d.talla).trim().toUpperCase()}`.toUpperCase()
+        if(!existentesKeys.has(k)){
+          rowsActualizar.push({
+            empresa_id: empId,
+            referencia: d.raw,
+            talla: d.talla,
+            precio: d.precio,
+            stock_proveedor: d.stock,
+            proveedor_nombre: 'MBR - MÁXIMA',
+            imagen_original: d.imagen,
+            fecha_escaneo: new Date().toISOString()
+          })
+          if(empId===empresasIds[0]) nuevos++
+        }
+      }
+    }
+    if(rowsActualizar.length===0){
+      const target=empresa_id||empresasIds[0]||'9'
+      for(const d of mbrMap.values()){
+        rowsActualizar.push({
+          empresa_id: target,
+          referencia: d.raw,
+          talla: d.talla,
+          precio: d.precio,
+          stock_proveedor: d.stock,
+          proveedor_nombre: 'MBR - MÁXIMA',
+          imagen_original: d.imagen,
+          fecha_escaneo: new Date().toISOString()
+        })
+      }
+    }
+
+    const total=rowsActualizar.length
+    const sliceRows=rowsActualizar.slice(offset, offset+limit)
+    const hasMore=offset+limit<total
+    const nextOffset=hasMore?offset+limit:null
+
+    let guardados=0, errores=[]
+    for(let i=0;i<sliceRows.length;i+=10){
+      if(Date.now()-t0>54000) break
+      const chunk=sliceRows.slice(i,i+10)
+      try{
+        const r1=await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:'empresa_id,referencia,talla'})
+        if(r1.error) throw r1.error
+        guardados+=chunk.length
+      }catch(e1){
+        try{
+          const r2=await supabase.from('listado_maestro_proveedor').upsert(chunk,{onConflict:'empresa_id,referencia'})
+          if(r2.error) throw r2.error
+          guardados+=chunk.length
+        }catch(e2){
+          for(const s of chunk){
+            try{
+              const rr=await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia,talla'})
+              if(!rr.error) guardados++
+              else{
+                const rr2=await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia'})
+                if(!rr2.error) guardados++
+                else errores.push(rr2.error.message.slice(0,120))
+              }
+            }catch(err){ errores.push(err.message.slice(0,100)) }
+          }
+        }
+      }
+    }
+
+    if(empresa_id && empresa_id!=='9' && guardados>0){
+      try{
+        const copy9=rowsActualizar.filter(r=>String(r.empresa_id)!=='9').map(r=>({...r, empresa_id:'9'}))
+        for(let i=0;i<copy9.length;i+=50){
+          await supabase.from('listado_maestro_proveedor').upsert(copy9.slice(i,i+50),{onConflict:'empresa_id,referencia,talla'})
+          await sleep(80)
         }
       }catch{}
-      // listado real
-      try{
-        const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id', empresaId).order('referencia').limit(2000)
-        if(data) all=[...all,...data]
-      }catch(e){ console.error('load uuid',e) }
-      if(empresaId!=='9'){
-        try{
-          const { data } = await supabase.from('listado_maestro_proveedor').select('*').eq('empresa_id','9').order('referencia').limit(2000)
-          if(data) all=[...all,...data]
-        }catch{}
-      }
-      const map=new Map()
-      for(const r of all){
-        const k=`${String(r.referencia||'').trim()}||${String(r.talla||'').trim()}`.toUpperCase()
-        if(k && !map.has(k)) map.set(k,r)
-      }
-      setListado(Array.from(map.values()))
-    }finally{ setLoading(false) }
-  }
+    }
 
-  const escanearAhoraNVR = async () => {
-    if(!confirm('NVR PLAYWRIGHT: Login -> 3 rayitas -> Listado de productos -> por cada producto click BUSCAR PRODUCTO para foto HD real, precio real, tallas, colores, stock? (Anti-generico)')) return
-    try{
-      setLoading(true)
-      setProgress('Iniciando...')
-      let offset=0, guard=0, total=0, hasMore=true, intentos=0
-      while(hasMore && intentos<120){
-        intentos++
-        setProgress(`Escaneando ${offset} (${guard}/${total||'?'})`)
-        const r=await fetch(`/api/scan-mbr?empresa_id=${empresaId}&offset=${offset}&limit=50&t=${Date.now()}`,{cache:'no-store'})
-        const txt=await r.text()
-        let j; try{ j=JSON.parse(txt) }catch{ throw new Error(txt.slice(0,600)) }
-        if(!j.ok) throw new Error(j.error)
-        guard+=j.guardados||0; total=j.total||total; hasMore=j.hasMore
-        if(hasMore){ offset=j.nextOffset||offset+50; await new Promise(x=>setTimeout(x,400)) } else break
-      }
-      setProgress('')
-      alert(`OK ${guard}/${total} con foto original, marca, color, tipo, stock y precio real`)
-      await cargarListado()
-    }catch(e){ alert('Error: '+e.message); setProgress('') } finally{ setLoading(false) }
-  }
-
-  const getImg = (it) => it.imagen_original || it.imagen_sin_fondo || maestroFotos[it.referencia]?.imagen_original || maestroFotos[it.referencia]?.imagen || null
-  const getCosto = (it) => { if(typeof it.precio==='number') return it.precio; const n=parseInt(String(it.precio||'').replace(/[^0-9]/g,''),10); return isNaN(n)?0:n }
-  const getMarca = (it) => {
-    if(it.marca) return it.marca
-    const ref=String(it.referencia||'').toUpperCase()
-    const marcas=['ADIDAS','NIKE','PUMA','REEBOK','NEW BALANCE','VANS','CONVERSE','FILA','JORDAN','NB','NIKE SB']
-    for(const m of marcas) if(ref.includes(m)) return m
-    return String(it.referencia||'').split(' ')[0].slice(0,12) || 'MBR'
-  }
-  const getColor = (it) => it.color || it.color_original || ''
-  const getTipo = (it) => it.tipo_producto || it.categoria || ''
-  const makeKey = (ref,talla) => `${String(ref).trim()}||${String(talla).trim()}`
-  const toggleOne = (ref,talla,chk) => {
-    setSeleccionados(s=>{
-      const set=new Set(s['MBR - MÁXIMA']||[])
-      const k=makeKey(ref,talla)
-      if(chk) set.add(k); else set.delete(k)
-      return {...s, ['MBR - MÁXIMA']:set}
+    return res.status(200).json({
+      ok:true, total, guardados, nuevos, noMatch,
+      conPrecio: sliceRows.filter(r=>r.precio>0).length,
+      conFoto: sliceRows.filter(r=>r.imagen_original).length,
+      offset, nextOffset, hasMore,
+      proveedor:'MBR - MÁXIMA',
+      modo:`V13_FIX_0_16_${guardados}_TOTAL_${total}_MBR_ITEMS_${allMbrItems.length}`,
+      tiempo_ms:Date.now()-t0,
+      sample: sliceRows.slice(0,5).map(r=>`${limpiarRef(r.referencia)} $${r.precio} T:${r.talla} S:${r.stock_proveedor}`),
+      errores: errores.slice(0,3),
+      mbr_total: allMbrItems.length
     })
+  }catch(e){
+    return res.status(500).json({ok:false, error:e.message})
   }
-  const toggleAll = (visible,chk) => {
-    setSeleccionados(s=>({ ...s, ['MBR - MÁXIMA']: chk ? new Set(visible.map(v=>makeKey(v.referencia,v.talla))) : new Set() }))
-  }
-  const aplicarLote = (visible) => {
-    const c=cfg['MBR - MÁXIMA']||{tipo:'COP',valor:'25000'}
-    const val=parseInt(String(c.valor).replace(/[^0-9]/g,''),10)||0
-    if(!val) return alert('Pon valor')
-    const sel=seleccionados['MBR - MÁXIMA']
-    const refs = sel && sel.size>0 ? Array.from(sel).map(k=>k.split('||')[0]) : visible.map(v=>v.referencia)
-    const uniq=[...new Set(refs)]
-    const newInc={...incrementos}
-    const newPV={...preciosVenta}
-    uniq.forEach(ref=>{
-      const item=visible.find(v=>String(v.referencia).trim()===String(ref).trim())
-      const costo=item?getCosto(item):0
-      let venta=costo
-      if(c.tipo==='COP'){ newInc[ref]=val; venta=costo+val }
-      else if(c.tipo==='PORC'){ const inc=Math.round(costo*val/100); newInc[ref]=inc; venta=costo+inc }
-      else { newInc[ref]=val-costo; venta=val }
-      newPV[ref]=venta
-    })
-    setIncrementos(newInc); setPreciosVenta(newPV)
-    try{ localStorage.setItem(`stockos_incrementos_${empresaId}`, JSON.stringify(newInc)); localStorage.setItem(`stockos_precios_venta_${empresaId}`, JSON.stringify(newPV)) }catch{}
-  }
-
-  const sel=seleccionados['MBR - MÁXIMA']||new Set()
-  const allChecked=listado.length>0 && sel.size===listado.length
-
-  return (
-    <div className="space-y-3 bg-[#f6f6f6] min-h-screen p-2">
-      <div className="bg-white p-3 rounded shadow flex justify-between items-center">
-        <div><div className="text-[11px] font-black">ENLACES PROVEEDORES - LISTADO MAESTRO</div><div className="text-[10px] text-gray-500">{empresaNombre} - {listado.length} refs - {progress||'302 con precio'} - {empresaId.slice(0,8)}</div></div>
-        <div className="flex gap-2">
-          <button onClick={()=>window.open(urlCatalogo,'_blank')} className="bg-green-600 text-white px-3 py-1.5 rounded text-[10px] font-black">VER CATALOGOS PUBLICOS</button>
-          <button onClick={escanearAhora} className="bg-orange-500 text-white px-4 py-1.5 rounded text-[10px] font-black">ESCANEAR AHORA {progress?`(${progress})`:''}</button>
-          <button onClick={cargarListado} className="bg-black text-white px-3 py-1.5 rounded text-[10px] font-black">ACTUALIZAR</button>
-        </div>
-      </div>
-
-      <div className="bg-white p-3 rounded shadow border">
-        <div className="text-[11px] font-black mb-2">CONFIGURAR ENLACE DE PROVEEDOR</div>
-        <div className="grid grid-cols-6 gap-2">
-          <input className="border p-1.5 rounded text-[11px]" placeholder="Nombre" defaultValue="MBR - MÁXIMA" />
-          <input className="border p-1.5 rounded text-[11px]" placeholder="Web" defaultValue="https://mbr.demachine.co" />
-          <input className="border p-1.5 rounded text-[11px]" placeholder="Usuario" />
-          <input className="border p-1.5 rounded text-[11px]" placeholder="Email" />
-          <input className="border p-1.5 rounded text-[11px]" placeholder="Grupo WhatsApp" />
-          <select className="border p-1.5 rounded text-[11px]"><option>PDF/Excel</option></select>
-        </div>
-        <button className="mt-2 bg-black text-white px-4 py-1 rounded text-[10px] font-black">+ GUARDAR ENLACE</button>
-      </div>
-
-      <div className="bg-white rounded shadow border overflow-hidden">
-        <div className="flex justify-between items-center p-2 bg-white border-b">
-          <div className="flex items-center gap-2"><span className="font-black text-[11px]">MBR - MAXIMA</span><span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[10px] font-bold">ACTIVO</span><span className="bg-black text-white px-2 py-0.5 rounded text-[10px]">302 con precio</span></div>
-          <button onClick={()=>setAbiertos(a=>({...a, ['MBR - MÁXIMA']:!a['MBR - MÁXIMA']}))} className="bg-gray-100 px-2 py-1 rounded text-[11px]">{abiertos['MBR - MÁXIMA']!==false?'−':'+'}</button>
-        </div>
-        {abiertos['MBR - MÁXIMA']!==false && <>
-          <div className="bg-yellow-50 border-y-2 border-yellow-400 p-2 m-2 rounded">
-            <div className="flex justify-between items-end flex-wrap gap-2">
-              <div><div className="text-[11px] font-black uppercase">VENTANA VALOR / INCREMENTO - MBR - MAXIMA</div><div className="text-[9px] text-gray-600">Flujo: Precio Proveedor (MBR Stock) + Incremento COP = Precio Venta Público Máxima | Trae foto original, marca, color, tipo</div></div>
-              <div className="flex gap-2 items-end">
-                <div><label className="text-[9px] font-bold block">Tipo lote</label><select value={cfg['MBR - MÁXIMA']?.tipo||'COP'} onChange={e=>setCfg({...cfg, ['MBR - MÁXIMA']:{...cfg['MBR - MÁXIMA'], tipo:e.target.value}})} className="border p-1 rounded text-[10px] font-bold bg-white"><option value="COP">$ COP a sumar</option><option value="PORC">% a sumar</option><option value="FIJO">Precio fijo</option></select></div>
-                <div><label className="text-[9px] font-bold block">Valor COP</label><input type="number" value={cfg['MBR - MÁXIMA']?.valor||'25000'} onChange={e=>setCfg({...cfg, ['MBR - MÁXIMA']:{...cfg['MBR - MÁXIMA'], valor:e.target.value}})} className="border p-1 rounded text-[10px] font-black w-24" /></div>
-                <button onClick={()=>aplicarLote(listado)} className="bg-black text-white px-3 py-1.5 rounded text-[10px] font-black">APLICAR A {sel.size>0?sel.size:'TODOS'} → PUBLICO</button>
-              </div>
-            </div>
-          </div>
-          <div className="bg-black text-white p-2 flex justify-between text-[11px] font-black"><span className="flex items-center gap-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(listado, e.target.checked)} />LISTADO MAESTRO - {listado.length} - {sel.size}/{listado.length} sel - 302 con precio</span><span>Catálogo Máxima usa solo Precio Público</span></div>
-          <div className="overflow-auto max-h-[700px]">
-            <table className="w-full text-[11px]">
-              <thead className="bg-gray-100 font-black sticky top-0 z-10"><tr><th className="p-2"><input type="checkbox" checked={allChecked} onChange={e=>toggleAll(listado, e.target.checked)} /></th><th className="p-2 text-left">Foto Original</th><th className="p-2 text-left">Referencia Original</th><th className="p-2">Marca</th><th className="p-2">Color</th><th className="p-2">Tipo Producto</th><th className="p-2">Talla</th><th className="p-2 text-left">Precio Proveedor (MBR Stock)</th><th className="p-2 bg-orange-100">Incremento COP</th><th className="p-2 bg-green-100">Precio Venta Público Máxima</th><th className="p-2">Stock MBR</th></tr></thead>
-              <tbody>
-                {listado.map((it,i)=>{
-                  const costo=getCosto(it)
-                  const inc=incrementos[it.referencia]||0
-                  const venta=preciosVenta[it.referencia]!=null?preciosVenta[it.referencia]:costo+inc
-                  const isSel=sel.has(makeKey(it.referencia,it.talla))
-                  const img=getImg(it)
-                  return(
-                    <tr key={`${it.referencia}-${it.talla}-${i}`} className={`border-t ${isSel?'bg-orange-50':''} ${costo===0?'bg-red-50':''}`}>
-                      <td className="p-2 text-center"><input type="checkbox" checked={isSel} onChange={e=>toggleOne(it.referencia,it.talla,e.target.checked)} /></td>
-                      <td className="p-1">{img ? <img src={img} className="h-10 w-10 object-contain bg-white border" loading="lazy" /> : <span className="text-gray-300">—</span>}</td>
-                      <td className="p-2 font-bold text-[10px] max-w-[180px] truncate" title={it.referencia}>{it.referencia}</td>
-                      <td className="p-2 font-bold text-[10px]">{getMarca(it)}</td>
-                      <td className="p-2 text-[10px]">{getColor(it)||'-'}</td>
-                      <td className="p-2 text-[10px]">{getTipo(it)||'-'}</td>
-                      <td className="p-2 text-center">{it.talla}</td>
-                      <td className="p-2 bg-blue-50 font-black text-blue-800 text-[12px]">{costo===0?'$0':`$${costo.toLocaleString('es-CO')}`}</td>
-                      <td className="p-2 bg-orange-50"><input type="number" value={incrementos[it.referencia]||''} onChange={e=>{ const v=parseInt(e.target.value.replace(/[^0-9]/g,''),10)||0; const ni={...incrementos,[it.referencia]:v}; setIncrementos(ni); setPreciosVenta(pv=>({...pv,[it.referencia]:costo+v})); try{ localStorage.setItem(`stockos_incrementos_${empresaId}`, JSON.stringify(ni)) }catch{} }} placeholder="25000" className="border border-orange-300 rounded px-1 py-0.5 w-20 text-[10px] font-black bg-white" /></td>
-                      <td className="p-2 bg-green-50 font-black text-green-700 text-[12px]">${venta.toLocaleString('es-CO')}</td>
-                      <td className="p-2 text-center font-bold">{it.stock_proveedor||1}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-            {listado.length===0 && !loading && <div className="p-8 text-center text-gray-400 text-xs">Sin productos - dale ESCANEAR AHORA para traer foto original, marca, color, tipo, stock y precio real</div>}
-          </div>
-        </>}
-      </div>
-    </div>
-  )
 }
