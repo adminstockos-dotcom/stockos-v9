@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 function getSupabase(){
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
-  if(!url || !key) throw new Error('Falta SUPABASE_URL o KEY')
+  if(!url ||!key) throw new Error('Falta SUPABASE_URL o KEY')
   return createClient(url, key, { auth: { persistSession: false } })
 }
 function parsePrecio(v){
@@ -120,11 +120,11 @@ export default async function handler(req,res){
         stock=isNaN(parsed)?0:Math.max(0,parsed)
       }
       const ex=mbrMap.get(key)
-      if(!ex || (imagen && !ex.imagen) || (stock>ex.stock)){
+      if(!ex || (imagen &&!ex.imagen) || (stock>ex.stock)){
         mbrMap.set(key,{precio, imagen, talla, stock, raw, limpia})
       }
       const exRef=mbrMapByRef.get(limpia)
-      if(!exRef || (imagen && !exRef.imagen) || (stock>exRef.stock)){
+      if(!exRef || (imagen &&!exRef.imagen) || (stock>exRef.stock)){
         mbrMapByRef.set(limpia,{precio, imagen, talla, stock, raw, limpia})
       }
     }
@@ -243,39 +243,4 @@ export default async function handler(req,res){
               const rr=await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia,talla'})
               if(!rr.error) guardados++
               else{
-                const rr2=await supabase.from('listado_maestro_proveedor').upsert(s,{onConflict:'empresa_id,referencia'})
-                if(!rr2.error) guardados++
-                else errores.push(rr2.error.message.slice(0,120))
-              }
-            }catch(err){ errores.push(err.message.slice(0,100)) }
-          }
-        }
-      }
-    }
-
-    if(empresa_id && empresa_id!=='9' && guardados>0){
-      try{
-        const copy9=rowsActualizar.filter(r=>String(r.empresa_id)!=='9').map(r=>({...r, empresa_id:'9'}))
-        for(let i=0;i<copy9.length;i+=50){
-          await supabase.from('listado_maestro_proveedor').upsert(copy9.slice(i,i+50),{onConflict:'empresa_id,referencia,talla'})
-          await sleep(80)
-        }
-      }catch{}
-    }
-
-    return res.status(200).json({
-      ok:true, total, guardados, nuevos, noMatch,
-      conPrecio: sliceRows.filter(r=>r.precio>0).length,
-      conFoto: sliceRows.filter(r=>r.imagen_original).length,
-      offset, nextOffset, hasMore,
-      proveedor:'MBR - MÁXIMA',
-      modo:`V13_FIX_0_16_${guardados}_TOTAL_${total}_MBR_ITEMS_${allMbrItems.length}`,
-      tiempo_ms:Date.now()-t0,
-      sample: sliceRows.slice(0,5).map(r=>`${limpiarRef(r.referencia)} $${r.precio} T:${r.talla} S:${r.stock_proveedor}`),
-      errores: errores.slice(0,3),
-      mbr_total: allMbrItems.length
-    })
-  }catch(e){
-    return res.status(500).json({ok:false, error:e.message})
-  }
-}
+                const rr2=await supabase.from('listado_ma
